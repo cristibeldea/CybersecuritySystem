@@ -1,0 +1,12 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>{{ item.title }}</title>
+  </head>
+  <body>
+    <a href="/?user={{ request.args.get('user','anonymous') }}">← back</a>
+    <h1>{{ item.title }}</h1>
+    <p>{{ item.body }}</p>
+  </body>
+</html>

@@ -1,0 +1,16 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Mock News</title>
+  </head>
+  <body>
+    <h1>Mock News</h1>
+    <p>Try: <code>/?user=alice</code></p>
+    <ul>
+      {% for item in news %}
+        <li><a href="/article/{{ item.id }}?user={{ request.args.get('user','anonymous') }}">{{ item.title }}</a></li>
+      {% endfor %}
+    </ul>
+  </body>
+</html>

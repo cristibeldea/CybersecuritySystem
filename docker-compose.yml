@@ -1,0 +1,30 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "no"]
+
+  web:
+    build: ./web
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      # Rule knobs (optional)
+      BAN_SECONDS: "600"
+    ports:
+      - "8080:8080"
+    depends_on:
+      - redis
+
+  request_inspector:
+    build: ./request_inspector
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      # Minimal rate rule: > MAX_REQ in WINDOW_SECONDS => ban
+      WINDOW_SECONDS: "10"
+      MAX_REQ: "20"
+      BAN_SECONDS: "600"
+    depends_on:
+      - redis
