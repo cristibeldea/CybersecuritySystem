@@ -1,0 +1,140 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Verification</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 40px; }
+      .box { max-width: 520px; border: 1px solid #ddd; padding: 24px; border-radius: 10px; }
+      .row { display: flex; gap: 12px; align-items: center; }
+      .status { margin-top: 12px; color: #444; }
+      .hint { margin-top: 8px; color: #777; font-size: 14px; }
+      input[type="checkbox"] { width: 20px; height: 20px; }
+      button { margin-top: 14px; padding: 10px 14px; border-radius: 8px; border: 1px solid #ccc; cursor: pointer; }
+      button:disabled { opacity: 0.6; cursor: not-allowed; }
+    </style>
+  </head>
+  <body>
+    <div class="box">
+      <h2>Human verification</h2>
+
+      <div class="row">
+        <input id="cb" type="checkbox" />
+        <label for="cb">I am human</label>
+      </div>
+
+      <div class="hint">
+        We analyze pointer behavior (speed/hesitation/trajectory). No typing required.
+      </div>
+
+      <div class="status" id="status"></div>
+
+      <button id="retry" disabled>Retry</button>
+    </div>
+
+    <script>
+      // Minimal mouse behavior capture
+      const MAX_POINTS = 800;              // cap memory
+      const SAMPLE_MS = 12;                // throttle sampling
+      const points = [];                   // {t,x,y}
+      let lastSample = 0;
+      let startT = performance.now();
+      let hadMouse = false;
+
+      function addPoint(x, y) {
+        const t = performance.now();
+        if (t - lastSample < SAMPLE_MS) return;
+        lastSample = t;
+        points.push({ t, x, y });
+        if (points.length > MAX_POINTS) points.shift();
+        hadMouse = true;
+      }
+
+      window.addEventListener("mousemove", (e) => addPoint(e.clientX, e.clientY), { passive: true });
+
+      // Touch fallback (phones)
+      window.addEventListener("touchmove", (e) => {
+        if (!e.touches || !e.touches[0]) return;
+        addPoint(e.touches[0].clientX, e.touches[0].clientY);
+      }, { passive: true });
+
+      // Optional: record clicks timing as extra signal
+      const clicks = [];
+      window.addEventListener("click", () => clicks.push(performance.now()), { passive: true });
+
+      const cb = document.getElementById("cb");
+      const statusEl = document.getElementById("status");
+      const retryBtn = document.getElementById("retry");
+
+      function setStatus(msg) { statusEl.textContent = msg; }
+
+      async function verify() {
+        cb.disabled = true;
+        retryBtn.disabled = true;
+        setStatus("Verifying...");
+
+        const payload = {
+          // normalize times relative to start
+          started_at_ms: startT,
+          ended_at_ms: performance.now(),
+          had_mouse: hadMouse,
+          points: points.map(p => ({ t: p.t - startT, x: p.x, y: p.y })),
+          clicks: clicks.map(t => t - startT),
+          ua: navigator.userAgent || ""
+        };
+
+        try {
+          const res = await fetch("/captcha/verify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+
+          if (res.ok) {
+            setStatus("Verified. Redirecting...");
+            // go where the server tells us
+            const data = await res.json();
+            window.location.replace(data.redirect || "/");
+          } else {
+            const text = await res.text();
+            setStatus("Verification failed. " + text);
+            cb.checked = false;
+            cb.disabled = false;
+            retryBtn.disabled = false;
+          }
+        } catch (e) {
+          setStatus("Verification error. Please retry.");
+          cb.checked = false;
+          cb.disabled = false;
+          retryBtn.disabled = false;
+        }
+      }
+
+      cb.addEventListener("change", () => {
+        if (cb.checked) verify();
+      });
+
+      retryBtn.addEventListener("click", () => {
+        points.length = 0;
+        clicks.length = 0;
+        hadMouse = false;
+        startT = performance.now();
+        setStatus("");
+        cb.checked = false;
+        cb.disabled = false;
+        retryBtn.disabled = true;
+      });
+
+      // If page is restored from bfcache (Back/Forward cache), and user is already cleared,
+      // the server-side /captcha redirect won't run. So we force a reload/redirect.
+      window.addEventListener("pageshow", (event) => {
+      if (event.persisted) {
+         window.location.replace("/");
+  }
+});
+
+      // enable retry after a bit of interaction time
+      setTimeout(() => { retryBtn.disabled = false; }, 1500);
+    </script>
+  </body>
+</html>

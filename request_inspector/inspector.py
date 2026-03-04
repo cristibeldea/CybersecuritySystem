@@ -8,7 +8,7 @@ REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 
 WINDOW_SECONDS = int(os.getenv("WINDOW_SECONDS", "10"))
 MAX_REQ = int(os.getenv("MAX_REQ", "20"))
-BAN_SECONDS = int(os.getenv("BAN_SECONDS", "600"))
+BAN_SECONDS = int(os.getenv("BAN_SECONDS", "60"))
 
 PUBSUB_CHANNEL = "requests_channel"
 BANNED_PREFIX = "ban:"                 # ban:<ip> = "1" with TTL

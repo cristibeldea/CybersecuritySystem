@@ -10,6 +10,8 @@ services:
     environment:
       REDIS_HOST: redis
       REDIS_PORT: "6379"
+      CAPTCHA_SECRET: "change-this-to-a-random-long-string"
+      CAPTCHA_TTL_SECONDS: "3600"
       # Rule knobs (optional)
       BAN_SECONDS: "600"
     ports:
