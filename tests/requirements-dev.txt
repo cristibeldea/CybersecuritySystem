@@ -1,3 +1,4 @@
 pytest==8.3.2
 pytest-asyncio==0.24.0
 playwright==1.58.0
+redis==5.2.1
