@@ -16,6 +16,16 @@ def classify_request(path: str) -> str:
         return "page"
     return "other"
 
+def ban_ip(redis_client, ip: str, ban_seconds: int, reason: str = "") -> None:
+    """
+    Shared ban primitive for the web app.
+    Uses the same Redis key contract as inspector.py:
+      key = ban:<ip>, value = "1", TTL = ban_seconds
+    """
+    if not ip or ip == "unknown":
+        return
+    key = f"{BANNED_PREFIX}{ip}"
+    redis_client.set(key, "1", ex=int(ban_seconds))
 
 def is_banned(redis_client, ip: str) -> bool:
     if not ip or ip == "unknown":

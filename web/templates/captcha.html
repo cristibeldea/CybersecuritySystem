@@ -1,45 +1,305 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Verification</title>
     <style>
-      body { font-family: Arial, sans-serif; margin: 40px; }
-      .box { max-width: 520px; border: 1px solid #ddd; padding: 24px; border-radius: 10px; }
-      .row { display: flex; gap: 12px; align-items: center; }
-      .status { margin-top: 12px; color: #444; }
-      .hint { margin-top: 8px; color: #777; font-size: 14px; }
-      input[type="checkbox"] { width: 20px; height: 20px; }
-      button { margin-top: 14px; padding: 10px 14px; border-radius: 8px; border: 1px solid #ccc; cursor: pointer; }
-      button:disabled { opacity: 0.6; cursor: not-allowed; }
+      :root {
+        --fg: #111;
+        --muted: #666;
+        --border: #e5e5e5;
+        --bg: #fff;
+        --bad: #b00020;
+        --ok: #0b6;
+        --accent: #1f4bff;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        margin: 32px;
+        color: var(--fg);
+        background: #fafafa;
+      }
+
+      .box {
+        max-width: 860px;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        padding: 22px;
+        border-radius: 14px;
+        box-shadow: 0 10px 30px rgba(0,0,0,.04);
+        margin: 0 auto;
+      }
+
+      h2 {
+        margin: 0 0 10px 0;
+        font-size: 24px;
+      }
+
+      .hint {
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.45;
+      }
+
+      .status {
+        margin-top: 14px;
+        font-size: 14px;
+        min-height: 22px;
+      }
+
+      .status.bad { color: var(--bad); }
+      .status.ok { color: var(--ok); }
+
+      .card {
+        margin-top: 16px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 16px;
+        background: #fff;
+      }
+
+      .hidden { display: none !important; }
+
+      .row {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      button {
+        padding: 10px 14px;
+        border-radius: 10px;
+        border: 1px solid #ccc;
+        background: #fff;
+        cursor: pointer;
+        font-size: 14px;
+      }
+
+      button:hover { border-color: #aaa; }
+
+      button:disabled {
+        opacity: .6;
+        cursor: not-allowed;
+      }
+
+      input[type="checkbox"] {
+        width: 20px;
+        height: 20px;
+      }
+
+      input[type="text"] {
+        width: min(360px, 100%);
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid #ccc;
+        font-size: 15px;
+      }
+
+      .footer {
+        margin-top: 12px;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+      }
+
+      .small {
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        border: 1px solid #ddd;
+        background: #f8f8f8;
+        color: #333;
+      }
+
+      .grid-wrap {
+        margin-top: 14px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+      }
+
+      .tile {
+        position: relative;
+        border: 2px solid transparent;
+        border-radius: 12px;
+        overflow: hidden;
+        background: #f2f2f2;
+        cursor: pointer;
+        min-height: 160px;
+      }
+
+      .tile.selected {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(31, 75, 255, 0.12);
+      }
+
+      .tile img {
+        display: block;
+        width: 100%;
+        height: 180px;
+        object-fit: cover;
+        user-select: none;
+        pointer-events: none;
+      }
+
+      .tile-check {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        width: 22px;
+        height: 22px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.9);
+        border: 1px solid #ccc;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 14px;
+      }
+
+      .tile.selected .tile-check {
+        background: var(--accent);
+        color: white;
+        border-color: var(--accent);
+      }
+
+      .attempts {
+        margin-top: 12px;
+      }
+
+      .banned-box {
+        margin-top: 14px;
+        border: 1px solid #f3b3bf;
+        background: #fff4f6;
+        color: #7d1026;
+        border-radius: 12px;
+        padding: 14px;
+      }
+
+      @media (max-width: 640px) {
+        .grid {
+          grid-template-columns: repeat(2, 1fr);
+        }
+
+        .tile img {
+          height: 150px;
+        }
+      }
     </style>
   </head>
+
   <body>
     <div class="box">
       <h2>Human verification</h2>
 
-      <div class="row">
-        <input id="cb" type="checkbox" />
-        <label for="cb">I am human</label>
+      <div class="hint">
+        This verification combines behavioral signals with visual tasks. If a challenge is failed, a new one is generated automatically.
       </div>
 
-      <div class="hint">
-        We analyze pointer behavior (speed/hesitation/trajectory). No typing required.
+      <div class="attempts">
+        <span class="pill">Attempt: <span class="mono" id="attemptLabel">-</span></span>
+        <span class="pill">Stage: <span class="mono" id="stageLabel">-</span></span>
+      </div>
+
+      <div class="card" id="challengeCard">
+        <!-- Stage 0: checkbox -->
+        <div id="checkboxStage" class="hidden">
+          <div class="row">
+            <input id="cb" type="checkbox" />
+            <label for="cb">I am human</label>
+          </div>
+          <div class="hint">
+            A quick check is performed in the background before the visual challenge starts.
+          </div>
+        </div>
+
+        <!-- Stage 1: grid challenge -->
+        <div id="gridStage" class="hidden">
+          <div>
+            <strong id="gridPrompt">Select all images matching the requested category.</strong>
+          </div>
+          <div class="hint" id="gridHint">
+            Choose every image that belongs to the requested class, then press Verify.
+          </div>
+
+          <div class="grid-wrap">
+            <div class="grid" id="grid"></div>
+          </div>
+
+          <div style="margin-top:12px;">
+            <button id="gridVerifyBtn" type="button">Verify</button>
+          </div>
+        </div>
+
       </div>
 
       <div class="status" id="status"></div>
 
-      <button id="retry" disabled>Retry</button>
+      <div id="bannedBox" class="banned-box hidden">
+        <strong>Temporarily blocked.</strong>
+        <div style="margin-top:6px;">
+          Too many failed verification attempts. Please try again in
+          <span class="mono" id="banRemaining">60</span> seconds.
+        </div>
+      </div>
+
+      <div class="footer">
+        <button id="resetBtn" type="button">Reset</button>
+        <div class="small">
+          Tip: If you navigated here using back/forward, refresh the page.
+        </div>
+      </div>
     </div>
 
     <script>
-      // Minimal mouse behavior capture
-      const MAX_POINTS = 800;              // cap memory
-      const SAMPLE_MS = 12;                // throttle sampling
-      const points = [];                   // {t,x,y}
+      const CFG = {{ config | tojson }};
+      let nonce = CFG.nonce;
+      let state = CFG.state || {};
+      let redirectTo = CFG.redirect_to || "/";
+      let banUntil = CFG.ban_until || null;
+
+      // -----------------------------
+      // Interaction capture
+      // -----------------------------
+      const MAX_POINTS = 900;
+      const SAMPLE_MS = 12;
+      const points = [];
+      const clicks = [];
+      const keydowns = [];
+      const focusEvents = [];
+
+      // Per-tile hover tracking: { tileId: { enter_t, total_ms } }
+      const tileHovers = {};
+      let currentHoverTile = null;
+      let hoverEnterT = 0;
+
       let lastSample = 0;
       let startT = performance.now();
-      let hadMouse = false;
+      let hadPointer = false;
 
       function addPoint(x, y) {
         const t = performance.now();
@@ -47,94 +307,380 @@
         lastSample = t;
         points.push({ t, x, y });
         if (points.length > MAX_POINTS) points.shift();
-        hadMouse = true;
+        hadPointer = true;
       }
 
       window.addEventListener("mousemove", (e) => addPoint(e.clientX, e.clientY), { passive: true });
-
-      // Touch fallback (phones)
       window.addEventListener("touchmove", (e) => {
         if (!e.touches || !e.touches[0]) return;
         addPoint(e.touches[0].clientX, e.touches[0].clientY);
       }, { passive: true });
 
-      // Optional: record clicks timing as extra signal
-      const clicks = [];
-      window.addEventListener("click", () => clicks.push(performance.now()), { passive: true });
+      // Track click coordinates and target tile (for overshoot detection)
+      window.addEventListener("click", (e) => {
+        clicks.push({ t: performance.now(), x: e.clientX, y: e.clientY });
+      }, { passive: true });
 
-      const cb = document.getElementById("cb");
-      const statusEl = document.getElementById("status");
-      const retryBtn = document.getElementById("retry");
+      window.addEventListener("keydown", (e) => {
+        keydowns.push({ t: performance.now(), k: (e.key || "").slice(0, 16) });
+      }, { passive: true });
 
-      function setStatus(msg) { statusEl.textContent = msg; }
+      window.addEventListener("focus", () => focusEvents.push({ t: performance.now(), type: "focus" }), { passive: true });
+      window.addEventListener("blur", () => focusEvents.push({ t: performance.now(), type: "blur" }), { passive: true });
 
-      async function verify() {
-        cb.disabled = true;
-        retryBtn.disabled = true;
-        setStatus("Verifying...");
+      function onTileEnter(tileId) {
+        const now = performance.now();
+        // close previous hover if still open
+        if (currentHoverTile !== null && currentHoverTile !== tileId) {
+          flushHover(now);
+        }
+        currentHoverTile = tileId;
+        hoverEnterT = now;
+      }
 
-        const payload = {
-          // normalize times relative to start
-          started_at_ms: startT,
-          ended_at_ms: performance.now(),
-          had_mouse: hadMouse,
-          points: points.map(p => ({ t: p.t - startT, x: p.x, y: p.y })),
-          clicks: clicks.map(t => t - startT),
-          ua: navigator.userAgent || ""
-        };
-
-        try {
-          const res = await fetch("/captcha/verify", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
-          });
-
-          if (res.ok) {
-            setStatus("Verified. Redirecting...");
-            // go where the server tells us
-            const data = await res.json();
-            window.location.replace(data.redirect || "/");
-          } else {
-            const text = await res.text();
-            setStatus("Verification failed. " + text);
-            cb.checked = false;
-            cb.disabled = false;
-            retryBtn.disabled = false;
-          }
-        } catch (e) {
-          setStatus("Verification error. Please retry.");
-          cb.checked = false;
-          cb.disabled = false;
-          retryBtn.disabled = false;
+      function onTileLeave(tileId) {
+        if (currentHoverTile === tileId) {
+          flushHover(performance.now());
         }
       }
 
-      cb.addEventListener("change", () => {
-        if (cb.checked) verify();
-      });
+      function flushHover(now) {
+        if (currentHoverTile === null) return;
+        const elapsed = now - hoverEnterT;
+        if (!tileHovers[currentHoverTile]) {
+          tileHovers[currentHoverTile] = { total_ms: 0, visits: 0 };
+        }
+        tileHovers[currentHoverTile].total_ms += elapsed;
+        tileHovers[currentHoverTile].visits += 1;
+        currentHoverTile = null;
+      }
 
-      retryBtn.addEventListener("click", () => {
+      function envSignals() {
+        const nav = navigator || {};
+        const scr = screen || {};
+
+        return {
+          tz_offset_min: new Date().getTimezoneOffset(),
+          lang: (nav.language || "").slice(0, 24),
+          languages: Array.isArray(nav.languages) ? nav.languages.slice(0, 5).map(s => (s || "").slice(0, 24)) : [],
+          platform: (nav.platform || "").slice(0, 32),
+          hw_concurrency: nav.hardwareConcurrency || null,
+          device_memory: nav.deviceMemory || null,
+          dpr: (window.devicePixelRatio || 1),
+          screen_w: scr.width || null,
+          screen_h: scr.height || null,
+          viewport_w: window.innerWidth || null,
+          viewport_h: window.innerHeight || null,
+          cookies_enabled: !!nav.cookieEnabled,
+          ua: (nav.userAgent || "").slice(0, 220),
+        };
+      }
+
+      function makePayload(extra) {
+        // flush any in-progress hover
+        flushHover(performance.now());
+
+        const endT = performance.now();
+        return Object.assign({
+          nonce,
+          started_at_ms: startT,
+          ended_at_ms: endT,
+          duration_ms: endT - startT,
+          had_pointer: hadPointer,
+          points: points.map(p => ({ t: p.t - startT, x: p.x, y: p.y })),
+          clicks: clicks.map(c => ({ t: c.t - startT, x: c.x, y: c.y })),
+          keydowns: keydowns.map(k => ({ t: k.t - startT, k: k.k })),
+          focus: focusEvents.map(f => ({ t: f.t - startT, type: f.type })),
+          tile_hovers: Object.assign({}, tileHovers),
+          env: envSignals(),
+        }, extra || {});
+      }
+
+      function hardResetInteraction() {
         points.length = 0;
         clicks.length = 0;
-        hadMouse = false;
+        keydowns.length = 0;
+        focusEvents.length = 0;
+        hadPointer = false;
+        lastSample = 0;
         startT = performance.now();
-        setStatus("");
+        // reset hover tracking
+        for (const k in tileHovers) delete tileHovers[k];
+        currentHoverTile = null;
+        hoverEnterT = 0;
+      }
+
+      // -----------------------------
+      // UI refs
+      // -----------------------------
+      const checkboxStage = document.getElementById("checkboxStage");
+      const gridStage = document.getElementById("gridStage");
+
+      const cb = document.getElementById("cb");
+      const gridEl = document.getElementById("grid");
+      const gridPrompt = document.getElementById("gridPrompt");
+      const gridHint = document.getElementById("gridHint");
+      const gridVerifyBtn = document.getElementById("gridVerifyBtn");
+
+      const statusEl = document.getElementById("status");
+      const resetBtn = document.getElementById("resetBtn");
+
+      const attemptLabel = document.getElementById("attemptLabel");
+      const stageLabel = document.getElementById("stageLabel");
+
+      const bannedBox = document.getElementById("bannedBox");
+      const banRemaining = document.getElementById("banRemaining");
+
+      let selectedTiles = new Set();
+      let banInterval = null;
+
+      function setStatus(msg, kind) {
+        statusEl.textContent = msg || "";
+        statusEl.className = "status" + (kind ? (" " + kind) : "");
+      }
+
+      function hideAllStages() {
+        checkboxStage.classList.add("hidden");
+        gridStage.classList.add("hidden");
+      }
+
+      function renderMeta() {
+        attemptLabel.textContent = String(state.attempt_index || 0);
+        stageLabel.textContent = String(state.kind || "checkbox");
+      }
+
+      function renderCheckbox() {
+        hideAllStages();
+        checkboxStage.classList.remove("hidden");
         cb.checked = false;
         cb.disabled = false;
-        retryBtn.disabled = true;
+        renderMeta();
+      }
+
+      function renderGrid() {
+        hideAllStages();
+        gridStage.classList.remove("hidden");
+        selectedTiles = new Set();
+
+        const category = state.category_label || state.category || "target category";
+        gridPrompt.textContent = `Select all images containing: ${category}`;
+        gridHint.textContent = "Choose every matching image, then press Verify.";
+
+        gridEl.innerHTML = "";
+
+        const tiles = Array.isArray(state.tiles) ? state.tiles : [];
+        for (const tile of tiles) {
+          const el = document.createElement("div");
+          el.className = "tile";
+          el.dataset.id = String(tile.id);
+
+          const img = document.createElement("img");
+          img.src = tile.url;
+          img.alt = "captcha tile";
+
+          const badge = document.createElement("div");
+          badge.className = "tile-check";
+          badge.textContent = "";
+
+          el.appendChild(img);
+          el.appendChild(badge);
+
+          el.addEventListener("click", () => {
+            const id = String(tile.id);
+            if (selectedTiles.has(id)) {
+              selectedTiles.delete(id);
+              el.classList.remove("selected");
+              badge.textContent = "";
+            } else {
+              selectedTiles.add(id);
+              el.classList.add("selected");
+              badge.textContent = "✓";
+            }
+          });
+
+          // Track hover time per tile
+          el.addEventListener("mouseenter", () => onTileEnter(String(tile.id)));
+          el.addEventListener("mouseleave", () => onTileLeave(String(tile.id)));
+
+          gridEl.appendChild(el);
+        }
+
+        renderMeta();
+      }
+
+      function renderState() {
+        if (banUntil && Date.now() < banUntil * 1000) {
+          showBan();
+          return;
+        }
+
+        bannedBox.classList.add("hidden");
+        clearBanTimer();
+
+        const kind = state.kind || "checkbox";
+        if (kind === "checkbox") {
+          renderCheckbox();
+        } else if (kind === "grid") {
+          renderGrid();
+        } else {
+          renderCheckbox();
+        }
+      }
+
+      function clearBanTimer() {
+        if (banInterval) {
+          clearInterval(banInterval);
+          banInterval = null;
+        }
+      }
+
+      function showBan() {
+        hideAllStages();
+        bannedBox.classList.remove("hidden");
+
+        clearBanTimer();
+
+        function tickBan() {
+          const nowSec = Math.floor(Date.now() / 1000);
+          const remain = Math.max(0, (banUntil || 0) - nowSec);
+          banRemaining.textContent = String(remain);
+
+          if (remain <= 0) {
+            clearBanTimer();
+            window.location.reload();
+          }
+        }
+
+        tickBan();
+        banInterval = setInterval(tickBan, 500);
+      }
+
+      async function postJSON(url, payload) {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        const ct = (res.headers.get("content-type") || "").toLowerCase();
+        let data = null;
+
+        if (ct.includes("application/json")) {
+          data = await res.json();
+        } else {
+          data = { message: await res.text() };
+        }
+
+        return { res, data };
+      }
+
+      async function verifyCheckbox() {
+        cb.disabled = true;
+        setStatus("Checking…", "");
+
+        try {
+          const payload = makePayload({ action: "checkbox" });
+          const { res, data } = await postJSON("/captcha/verify", payload);
+
+          if (res.ok && data.action === "next") {
+            state = data.state;
+            nonce = data.nonce;
+            hardResetInteraction();
+            setStatus(data.message || "Proceeding to visual challenge.", "");
+            renderState();
+            return;
+          }
+
+          if (data.action === "banned") {
+            banUntil = data.ban_until;
+            setStatus(data.message || "Temporarily blocked.", "bad");
+            showBan();
+            return;
+          }
+
+          setStatus(data.message || "Verification failed.", "bad");
+          cb.checked = false;
+          cb.disabled = false;
+        } catch (e) {
+          setStatus("Verification error. Please retry.", "bad");
+          cb.checked = false;
+          cb.disabled = false;
+        }
+      }
+
+      async function verifyGrid() {
+        gridVerifyBtn.disabled = true;
+        setStatus("Verifying images…", "");
+
+        try {
+          const payload = makePayload({
+            action: "grid",
+            selected_ids: Array.from(selectedTiles),
+          });
+
+          const { res, data } = await postJSON("/captcha/verify", payload);
+
+          if (res.ok && data.action === "pass") {
+            setStatus(data.message || "Verified. Redirecting…", "ok");
+            window.location.replace(data.redirect || redirectTo);
+            return;
+          }
+
+          if (res.ok && data.action === "next") {
+            state = data.state;
+            nonce = data.nonce;
+            hardResetInteraction();
+            setStatus(data.message || "Try the next challenge.", "bad");
+            renderState();
+            return;
+          }
+
+          if (data.action === "banned") {
+            banUntil = data.ban_until;
+            setStatus(data.message || "Temporarily blocked.", "bad");
+            showBan();
+            return;
+          }
+
+          setStatus(data.message || "Verification failed.", "bad");
+        } catch (e) {
+          setStatus("Verification error. Please retry.", "bad");
+        } finally {
+          gridVerifyBtn.disabled = false;
+        }
+      }
+
+      cb.addEventListener("change", async () => {
+        if (!cb.checked) return;
+        await verifyCheckbox();
       });
 
-      // If page is restored from bfcache (Back/Forward cache), and user is already cleared,
-      // the server-side /captcha redirect won't run. So we force a reload/redirect.
-      window.addEventListener("pageshow", (event) => {
-      if (event.persisted) {
-         window.location.replace("/");
-  }
-});
+      gridVerifyBtn.addEventListener("click", verifyGrid);
 
-      // enable retry after a bit of interaction time
-      setTimeout(() => { retryBtn.disabled = false; }, 1500);
+      resetBtn.addEventListener("click", async () => {
+        try {
+          setStatus("Resetting…", "");
+          const { res, data } = await postJSON("/captcha/reset", {});
+          if (res.ok) {
+            nonce = data.nonce;
+            state = data.state;
+            banUntil = data.ban_until || null;
+            hardResetInteraction();
+            setStatus("");
+            renderState();
+          } else {
+            setStatus(data.message || "Could not reset.", "bad");
+          }
+        } catch (e) {
+          setStatus("Reset failed.", "bad");
+        }
+      });
+
+      window.addEventListener("pageshow", (event) => {
+        if (event.persisted) window.location.replace("/captcha");
+      });
+
+      renderState();
     </script>
   </body>
 </html>
