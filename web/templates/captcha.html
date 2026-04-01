@@ -88,9 +88,50 @@
         cursor: not-allowed;
       }
 
-      input[type="checkbox"] {
-        width: 20px;
-        height: 20px;
+      .hold-btn {
+        position: relative;
+        width: 260px;
+        height: 48px;
+        border: 2px solid #ccc;
+        border-radius: 12px;
+        background: #f8f8f8;
+        cursor: pointer;
+        overflow: hidden;
+        user-select: none;
+        -webkit-user-select: none;
+        font-size: 15px;
+        font-weight: 500;
+        color: var(--fg);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: border-color 0.2s;
+      }
+
+      .hold-btn:hover { border-color: #aaa; }
+      .hold-btn:active { border-color: var(--accent); }
+
+      .hold-btn.done {
+        border-color: var(--ok);
+        cursor: default;
+      }
+
+      .hold-fill {
+        position: absolute;
+        left: 0;
+        top: 0;
+        height: 100%;
+        width: 0%;
+        background: rgba(31, 75, 255, 0.10);
+        border-radius: 10px;
+        transition: none;
+        pointer-events: none;
+      }
+
+      .hold-btn .hold-label {
+        position: relative;
+        z-index: 1;
+        pointer-events: none;
       }
 
       input[type="text"] {
@@ -163,6 +204,16 @@
         object-fit: cover;
         user-select: none;
         pointer-events: none;
+        filter: blur(80px);
+        transition: filter 0.15s ease;
+      }
+
+      .tile:hover img {
+        filter: none;
+      }
+
+      .tile.selected img {
+        filter: none;
       }
 
       .tile-check {
@@ -185,6 +236,37 @@
         background: var(--accent);
         color: white;
         border-color: var(--accent);
+      }
+
+      /* Honeypot decoys — visible to parsers, invisible to users */
+      .vr-field {
+        opacity: 0;
+        pointer-events: none;
+        position: absolute;
+        z-index: -1;
+        height: 0;
+        overflow: hidden;
+        padding: 0;
+        margin: 0;
+        border: 0;
+      }
+
+      .vr-field-b {
+        height: 0;
+        width: 0;
+        overflow: hidden;
+        padding: 0;
+        margin: 0;
+        border: 0;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+      }
+
+      .vr-offscreen {
+        position: fixed;
+        left: -9999px;
+        top: -9999px;
+        pointer-events: none;
       }
 
       .attempts {
@@ -225,15 +307,59 @@
         <span class="pill">Stage: <span class="mono" id="stageLabel">-</span></span>
       </div>
 
+      <!-- Honeypot: off-screen decoys -->
+      <div class="vr-offscreen" aria-hidden="true">
+        <div class="hold-btn" data-action="verify" tabindex="-1">
+          <div class="hold-fill"></div>
+          <span class="hold-label">Hold to verify</span>
+        </div>
+        <div class="hold-btn" data-action="verify" tabindex="-1">
+          <div class="hold-fill"></div>
+          <span class="hold-label">Hold to verify</span>
+        </div>
+      </div>
+
       <div class="card" id="challengeCard">
-        <!-- Stage 0: checkbox -->
+        <!-- Stage 0: hold button -->
         <div id="checkboxStage" class="hidden">
-          <div class="row">
-            <input id="cb" type="checkbox" />
-            <label for="cb">I am human</label>
+          <!-- Honeypot: 2 hidden decoys before real button -->
+          <div class="vr-field" aria-hidden="true">
+            <div class="hold-btn" data-action="verify" tabindex="-1">
+              <div class="hold-fill"></div>
+              <span class="hold-label">Hold to verify</span>
+            </div>
           </div>
+          <div class="vr-field-b" aria-hidden="true">
+            <div class="hold-btn" data-action="verify" tabindex="-1">
+              <div class="hold-fill"></div>
+              <span class="hold-label">Hold to verify</span>
+            </div>
+          </div>
+
+          <!-- Real button -->
+          <div class="row">
+            <div id="holdBtn" class="hold-btn">
+              <div id="holdFill" class="hold-fill"></div>
+              <span class="hold-label" id="holdLabel">Hold to verify</span>
+            </div>
+          </div>
+
+          <!-- Honeypot: 2 hidden decoys after real button -->
+          <div class="vr-field" aria-hidden="true">
+            <div class="hold-btn" data-action="verify" tabindex="-1">
+              <div class="hold-fill"></div>
+              <span class="hold-label">Hold to verify</span>
+            </div>
+          </div>
+          <div class="vr-field-b" aria-hidden="true">
+            <div class="hold-btn" data-action="verify" tabindex="-1">
+              <div class="hold-fill"></div>
+              <span class="hold-label">Hold to verify</span>
+            </div>
+          </div>
+
           <div class="hint">
-            A quick check is performed in the background before the visual challenge starts.
+            Press and hold the button until it completes. A behavioral check runs in the background.
           </div>
         </div>
 
@@ -392,6 +518,7 @@
           keydowns: keydowns.map(k => ({ t: k.t - startT, k: k.k })),
           focus: focusEvents.map(f => ({ t: f.t - startT, type: f.type })),
           tile_hovers: Object.assign({}, tileHovers),
+          hp: honeypotTriggered,
           env: envSignals(),
         }, extra || {});
       }
@@ -416,7 +543,9 @@
       const checkboxStage = document.getElementById("checkboxStage");
       const gridStage = document.getElementById("gridStage");
 
-      const cb = document.getElementById("cb");
+      const holdBtn = document.getElementById("holdBtn");
+      const holdFill = document.getElementById("holdFill");
+      const holdLabel = document.getElementById("holdLabel");
       const gridEl = document.getElementById("grid");
       const gridPrompt = document.getElementById("gridPrompt");
       const gridHint = document.getElementById("gridHint");
@@ -449,11 +578,20 @@
         stageLabel.textContent = String(state.kind || "checkbox");
       }
 
+      let holdActive = false;
+      let holdDone = false;
+      let holdStart = 0;
+      let holdRaf = null;
+      const HOLD_DURATION_MS = 1500;
+
       function renderCheckbox() {
         hideAllStages();
         checkboxStage.classList.remove("hidden");
-        cb.checked = false;
-        cb.disabled = false;
+        holdActive = false;
+        holdDone = false;
+        holdFill.style.width = "0%";
+        holdBtn.classList.remove("done");
+        holdLabel.textContent = "Hold to verify";
         renderMeta();
       }
 
@@ -462,9 +600,16 @@
         gridStage.classList.remove("hidden");
         selectedTiles = new Set();
 
-        const category = state.category_label || state.category || "target category";
-        gridPrompt.textContent = `Select all images containing: ${category}`;
-        gridHint.textContent = "Choose every matching image, then press Verify.";
+        gridPrompt.textContent = state.prompt || "Examine the images carefully.";
+
+        const expect = state.expect_count || 0;
+        if (expect === 1) {
+          gridHint.textContent = "Select the one image that answers the question, then press Verify.";
+        } else if (expect === 2) {
+          gridHint.textContent = "Select exactly two images, then press Verify.";
+        } else {
+          gridHint.textContent = "Make your selection, then press Verify.";
+        }
 
         gridEl.innerHTML = "";
 
@@ -574,8 +719,44 @@
         return { res, data };
       }
 
+      function holdTick() {
+        if (!holdActive) return;
+        const elapsed = performance.now() - holdStart;
+        const pct = Math.min(100, (elapsed / HOLD_DURATION_MS) * 100);
+        holdFill.style.width = pct + "%";
+
+        if (elapsed >= HOLD_DURATION_MS) {
+          holdActive = false;
+          holdDone = true;
+          holdBtn.classList.add("done");
+          holdLabel.textContent = "Verifying...";
+          verifyCheckbox();
+          return;
+        }
+
+        holdRaf = requestAnimationFrame(holdTick);
+      }
+
+      function holdDown(e) {
+        if (holdDone || holdActive) return;
+        e.preventDefault();
+        holdActive = true;
+        holdStart = performance.now();
+        holdFill.style.width = "0%";
+        holdRaf = requestAnimationFrame(holdTick);
+      }
+
+      function holdUp(e) {
+        if (!holdActive) return;
+        e.preventDefault();
+        holdActive = false;
+        if (holdRaf) cancelAnimationFrame(holdRaf);
+        // Released too early — reset
+        holdFill.style.width = "0%";
+        setStatus("Hold the button until it fills completely.", "bad");
+      }
+
       async function verifyCheckbox() {
-        cb.disabled = true;
         setStatus("Checking…", "");
 
         try {
@@ -599,12 +780,16 @@
           }
 
           setStatus(data.message || "Verification failed.", "bad");
-          cb.checked = false;
-          cb.disabled = false;
+          holdDone = false;
+          holdBtn.classList.remove("done");
+          holdLabel.textContent = "Hold to verify";
+          holdFill.style.width = "0%";
         } catch (e) {
           setStatus("Verification error. Please retry.", "bad");
-          cb.checked = false;
-          cb.disabled = false;
+          holdDone = false;
+          holdBtn.classList.remove("done");
+          holdLabel.textContent = "Hold to verify";
+          holdFill.style.width = "0%";
         }
       }
 
@@ -650,10 +835,22 @@
         }
       }
 
-      cb.addEventListener("change", async () => {
-        if (!cb.checked) return;
-        await verifyCheckbox();
+      // Honeypot trap — any interaction with decoy buttons flags the session
+      let honeypotTriggered = false;
+      document.querySelectorAll('[data-action="verify"]').forEach(decoy => {
+        ["mousedown", "touchstart", "click", "pointerdown"].forEach(evt => {
+          decoy.addEventListener(evt, () => { honeypotTriggered = true; }, { passive: true });
+        });
       });
+
+      // Hold button — mouse + touch
+      holdBtn.addEventListener("mousedown", holdDown);
+      window.addEventListener("mouseup", holdUp);
+      holdBtn.addEventListener("touchstart", holdDown, { passive: false });
+      window.addEventListener("touchend", holdUp);
+      window.addEventListener("touchcancel", holdUp);
+      // Prevent context menu on long-press (mobile)
+      holdBtn.addEventListener("contextmenu", (e) => e.preventDefault());
 
       gridVerifyBtn.addEventListener("click", verifyGrid);
 

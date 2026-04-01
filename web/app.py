@@ -11,7 +11,7 @@ import redis
 from flask import Flask, request, render_template, abort, redirect, make_response, jsonify, send_file
 from PIL import Image
 
-from request_checker import is_banned, ban_ip, build_entry, log_and_publish
+from request_checker import is_banned, ban_ip, build_entry, log_and_publish, BANNED_PREFIX
 
 from captcha import (
     CAPTCHA_COOKIE,
@@ -19,6 +19,7 @@ from captcha import (
     make_session_id,
     make_nonce,
     extract_features,
+    compute_behavior_risk,
     make_pass_token,
     verify_pass_token,
     create_or_reset_session,
@@ -44,6 +45,10 @@ CAPTCHA_SECRET = os.getenv("CAPTCHA_SECRET", "change-this")
 POLICY_VERSION = os.getenv("POLICY_VERSION", "1")
 
 PASS_TTL_SECONDS = 1800
+BAN_SECONDS_CAPTCHA = 60        # 1 minute — failed captcha attempts
+BAN_SECONDS_HONEYPOT = 2 * 60   # 2 minutes — honeypot trap (bot confirmed)
+BAN_SECONDS_BEHAVIOR = 90       # 1.5 minutes — behavioral analysis on website
+BEHAVIOR_RISK_THRESHOLD = 78    # same as captcha checkbox threshold
 COOKIE_SECURE = False
 COOKIE_SAMESITE = "Lax"
 
@@ -88,6 +93,20 @@ def get_or_set_sid(resp=None):
 
     return sid
 
+def safe_state(state):
+    """Strip server-only fields before sending state to the client."""
+    current = state.get("current", {}) or {}
+    public = {
+        "kind": current.get("kind", "checkbox"),
+        "attempt_index": current.get("attempt_index", 0),
+    }
+    if current.get("kind") == "grid":
+        public["task_type"] = current.get("task_type", "")
+        public["prompt"] = current.get("prompt", "")
+        public["expect_count"] = current.get("expect_count", 0)
+        public["tiles"] = current.get("tiles", [])
+    return public
+
 # -------------------------
 # Pass verification
 # -------------------------
@@ -115,8 +134,11 @@ def verify_pass():
 def security_gate_and_logging():
 
     ip = get_client_ip()
+    ip_banned = is_banned(r, ip)
 
-    if is_banned(r, ip):
+    # Let captcha pages through even when banned — the captcha UI
+    # shows the ban countdown instead of a raw 403
+    if ip_banned and not request.path.startswith("/captcha"):
         abort(403)
 
     entry = build_entry(
@@ -132,6 +154,9 @@ def security_gate_and_logging():
     if request.path.startswith("/captcha") or request.path.startswith("/static"):
         return
 
+    if request.path == "/behavior/check":
+        return
+
     if not verify_pass():
         return redirect("/captcha")
 
@@ -142,17 +167,25 @@ def security_gate_and_logging():
 def captcha_page():
 
     sid = get_or_set_sid()
-
     state = ensure_state(sid)
 
+    # Check both in-memory and Redis ban
     banned, ban_until = captcha_is_banned(state)
+
+    if not banned:
+        ip = get_client_ip()
+        if is_banned(r, ip):
+            ttl = r.ttl(f"{BANNED_PREFIX}{ip}")
+            if ttl and ttl > 0:
+                banned = True
+                ban_until = _now() + ttl
 
     resp = make_response(
         render_template(
             "captcha.html",
             config={
                 "nonce": state["nonce"],
-                "state": state["current"],
+                "state": safe_state(state),
                 "ban_until": ban_until if banned else 0,
                 "redirect_to": "/",
             },
@@ -184,9 +217,34 @@ def captcha_verify():
 
     payload = request.get_json(silent=True) or {}
 
+    # Honeypot trap — instant ban, separate from captcha failure logic
+    if payload.get("hp"):
+        ip = get_client_ip()
+        ban_ip(r, ip, BAN_SECONDS_HONEYPOT, reason="honeypot:decoy_button_interaction")
+        log.warning("HONEYPOT triggered ip=%s sid=%s", ip, sid)
+        ban_until = _now() + BAN_SECONDS_HONEYPOT
+        state["ban_until"] = ban_until
+        state["kind"] = "banned"
+        state["current"] = {"kind": "banned", "attempt_index": 0}
+        return jsonify({
+            "action": "banned",
+            "ban_until": ban_until
+        }), 429
+
     banned, ban_until = captcha_is_banned(state)
 
+    # Also check Redis ban (survives restarts / cookie clears)
+    if not banned:
+        ip = get_client_ip()
+        if is_banned(r, ip):
+            ttl = r.ttl(f"{BANNED_PREFIX}{ip}")
+            if ttl and ttl > 0:
+                banned = True
+                ban_until = _now() + ttl
+
     if banned:
+        ip = get_client_ip()
+        ban_ip(r, ip, BAN_SECONDS_CAPTCHA, reason=f"captcha:fail_count>={state.get('fail_count', 0)}")
         return jsonify({
             "action": "banned",
             "ban_until": ban_until
@@ -202,10 +260,19 @@ def captcha_verify():
         ok, _ = verify_checkbox(CAPTCHA_SECRET, state, payload)
 
         # verify_checkbox already calls next_challenge or record_failure_and_advance
+        banned, ban_until = captcha_is_banned(state)
+        if banned:
+            ip = get_client_ip()
+            ban_ip(r, ip, BAN_SECONDS_CAPTCHA, reason=f"captcha:checkbox_fail_count>={state.get('fail_count', 0)}")
+            return jsonify({
+                "action": "banned",
+                "ban_until": ban_until
+            }), 429
+
         return jsonify({
             "action": "next",
             "nonce": state["nonce"],
-            "state": state["current"]
+            "state": safe_state(state)
         })
 
     # -----------------
@@ -248,6 +315,8 @@ def captcha_verify():
         banned, ban_until = captcha_is_banned(state)
 
         if banned:
+            ip = get_client_ip()
+            ban_ip(r, ip, BAN_SECONDS_CAPTCHA, reason=f"captcha:fail_count>={state.get('fail_count', 0)}")
             return jsonify({
                 "action": "banned",
                 "ban_until": ban_until
@@ -256,7 +325,7 @@ def captcha_verify():
         return jsonify({
             "action": "next",
             "nonce": state["nonce"],
-            "state": state["current"]
+            "state": safe_state(state)
         })
 
     abort(400)
@@ -276,7 +345,7 @@ def captcha_reset():
 
     return jsonify({
         "nonce": state["nonce"],
-        "state": state["current"],
+        "state": safe_state(state),
         "ban_until": 0,
     })
 
@@ -320,6 +389,32 @@ def captcha_asset(nonce, token):
     buf.seek(0)
 
     return send_file(buf, mimetype=mimetype)
+
+# -------------------------
+# BEHAVIORAL ANALYSIS (website)
+# -------------------------
+@app.post("/behavior/check")
+def behavior_check():
+    """Receive behavioral telemetry from the main website,
+    score it with the same pipeline used by the captcha,
+    and ban the IP if the risk is too high."""
+
+    ip = get_client_ip()
+
+    payload = request.get_json(silent=True) or {}
+
+    features = extract_features(payload)
+    risk, reasons = compute_behavior_risk(features)
+
+    log.info("behavior_check ip=%s risk=%d reasons=%s", ip, risk, json.dumps(reasons, default=str))
+
+    if risk >= BEHAVIOR_RISK_THRESHOLD:
+        ban_ip(r, ip, BAN_SECONDS_BEHAVIOR, reason=f"behavior:risk={risk}")
+        log.warning("BEHAVIOR BAN ip=%s risk=%d", ip, risk)
+        return jsonify({"status": "banned", "risk": risk}), 429
+
+    return jsonify({"status": "ok", "risk": risk})
+
 
 # -------------------------
 # App routes

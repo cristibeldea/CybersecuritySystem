@@ -12,5 +12,91 @@
         <li><a href="/article/{{ item.id }}?user={{ request.args.get('user','anonymous') }}">{{ item.title }}</a></li>
       {% endfor %}
     </ul>
+
+    <script>
+    (function() {
+      /* -------------------------------------------------------
+         Behavioral telemetry — mirrors the captcha pipeline.
+         Collects mouse/touch points, clicks, focus/blur events.
+         Sends a window of data every SEND_INTERVAL_MS for scoring.
+      ------------------------------------------------------- */
+      var SEND_INTERVAL_MS = 5000;
+      var MAX_POINTS = 300;
+
+      var startTime = Date.now();
+      var points = [];
+      var clicks = [];
+      var focusEvents = [];
+      var hadPointer = false;
+
+      function ts() { return Date.now() - startTime; }
+
+      /* --- Mouse / touch movement --- */
+      function onMove(e) {
+        hadPointer = true;
+        var x, y;
+        if (e.touches && e.touches.length) {
+          x = e.touches[0].clientX;
+          y = e.touches[0].clientY;
+        } else {
+          x = e.clientX;
+          y = e.clientY;
+        }
+        if (points.length >= MAX_POINTS) points.shift();
+        points.push({ t: ts(), x: Math.round(x), y: Math.round(y) });
+      }
+      document.addEventListener("mousemove", onMove, { passive: true });
+      document.addEventListener("touchmove", onMove, { passive: true });
+
+      /* --- Clicks --- */
+      function onClick(e) {
+        clicks.push({ t: ts(), x: Math.round(e.clientX), y: Math.round(e.clientY) });
+      }
+      document.addEventListener("click", onClick, { passive: true });
+
+      /* --- Focus / blur --- */
+      window.addEventListener("focus", function() {
+        focusEvents.push({ type: "focus", t: ts() });
+      });
+      window.addEventListener("blur", function() {
+        focusEvents.push({ type: "blur", t: ts() });
+      });
+
+      /* --- Periodic send --- */
+      function sendBehavior() {
+        if (points.length < 3 && clicks.length < 1) return;
+
+        var payload = {
+          duration_ms: ts(),
+          points: points.slice(),
+          clicks: clicks.slice(),
+          focus: focusEvents.slice(),
+          had_pointer: hadPointer,
+          tile_hovers: {}
+        };
+
+        /* Reset buffers after sending */
+        points = [];
+        clicks = [];
+        focusEvents = [];
+        startTime = Date.now();
+
+        fetch("/behavior/check", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          credentials: "same-origin"
+        })
+        .then(function(resp) {
+          if (resp.status === 429) {
+            window.location.href = "/captcha";
+          }
+        })
+        .catch(function() { /* network error — ignore silently */ });
+      }
+
+      setInterval(sendBehavior, SEND_INTERVAL_MS);
+    })();
+    </script>
   </body>
 </html>

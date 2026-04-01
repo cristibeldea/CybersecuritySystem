@@ -1,1 +1,1 @@
-from .guard import classify_request, ban_ip, is_banned, build_entry, log_and_publish
+from .guard import classify_request, ban_ip, is_banned, build_entry, log_and_publish, BANNED_PREFIX

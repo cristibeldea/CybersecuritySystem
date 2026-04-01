@@ -7,11 +7,13 @@ Writes distorted copies to CAPTCHA_photos/grid/<category>/*
 preserving the exact folder hierarchy.
 
 Pipeline (applied in order):
-  [1] Elastic micro-warp
-  [2] Fourier mid-band erosion
-  [3] Halftone overlay
-  [4] Chromatic aberration
-  [5] FGSM-style perturbation (applied last, on the final composite)
+  [1] Elastic micro-warp          — smooth random displacement field
+  [2] Fourier mid-band erosion    — attenuate mid-frequencies via FFT
+  [3] Halftone overlay            — rotated dot grid, brightness-scaled
+  [4] Chromatic aberration        — randomised radial RGB channel shifts
+  [5] Color jitter                — random brightness / contrast / saturation
+  [6] JPEG artifact simulation    — lossy compress → decompress
+  [7] FGSM-style perturbation     — gradient-magnitude-weighted edge noise (last)
 
 Usage:
     python distort.py                  # process all
@@ -19,6 +21,7 @@ Usage:
 """
 
 import argparse
+import io
 import os
 import sys
 
@@ -37,76 +40,93 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"}
 
 # ===================================================================
 # [1] Elastic micro-warp
-#     Creates a smooth random displacement field and remaps every
-#     pixel by a small offset, producing subtle organic warping.
+#     Smooth random displacement field with bilinear interpolation.
+#     Alpha and sigma are randomised per image for variety.
 # ===================================================================
-def elastic_micro_warp(img: np.ndarray, alpha: float = 8.0, sigma: float = 4.0) -> np.ndarray:
+def elastic_micro_warp(img: np.ndarray,
+                       alpha_range: tuple = (12.0, 22.0),
+                       sigma_range: tuple = (4.0, 7.0)) -> np.ndarray:
     h, w = img.shape[:2]
+    rng = np.random.default_rng()
+
+    alpha = rng.uniform(*alpha_range)
+    sigma = rng.uniform(*sigma_range)
 
     # Random displacement fields
-    rng = np.random.default_rng()
     dx = rng.standard_normal((h, w)).astype(np.float32)
     dy = rng.standard_normal((h, w)).astype(np.float32)
 
-    # Smooth with a Gaussian-like kernel via repeated box blurs
-    # (approximation that avoids scipy dependency)
-    from PIL import ImageFilter as _IF
-
     def smooth_field(field: np.ndarray, sigma_px: float) -> np.ndarray:
-        # Convert to PIL grayscale image, blur, convert back
         fmin, fmax = field.min(), field.max()
         span = max(fmax - fmin, 1e-6)
         normalized = ((field - fmin) / span * 255).astype(np.uint8)
         pil_img = Image.fromarray(normalized, mode="L")
         radius = max(1, int(sigma_px))
-        pil_img = pil_img.filter(_IF.GaussianBlur(radius=radius))
+        pil_img = pil_img.filter(ImageFilter.GaussianBlur(radius=radius))
         result = np.asarray(pil_img).astype(np.float32) / 255.0 * span + fmin
         return result
 
     dx = smooth_field(dx, sigma) * alpha
     dy = smooth_field(dy, sigma) * alpha
 
-    # Build coordinate grids
+    # Coordinate grids
     y_coords, x_coords = np.mgrid[0:h, 0:w]
     map_x = (x_coords + dx).astype(np.float32)
     map_y = (y_coords + dy).astype(np.float32)
 
-    # Clamp to image bounds
-    map_x = np.clip(map_x, 0, w - 1)
-    map_y = np.clip(map_y, 0, h - 1)
+    # Clamp to valid range (leave room for bilinear)
+    map_x = np.clip(map_x, 0, w - 1.001)
+    map_y = np.clip(map_y, 0, h - 1.001)
 
-    # Nearest-neighbor remap (avoids opencv dependency)
-    ix = np.round(map_x).astype(np.intp)
-    iy = np.round(map_y).astype(np.intp)
+    # Bilinear interpolation (smoother than nearest-neighbor)
+    x0 = np.floor(map_x).astype(np.intp)
+    y0 = np.floor(map_y).astype(np.intp)
+    x1 = np.minimum(x0 + 1, w - 1)
+    y1 = np.minimum(y0 + 1, h - 1)
+    wx = map_x - x0
+    wy = map_y - y0
 
-    return img[iy, ix]
+    if img.ndim == 3:
+        wx = wx[:, :, np.newaxis]
+        wy = wy[:, :, np.newaxis]
+
+    result = (
+        img[y0, x0] * (1 - wx) * (1 - wy) +
+        img[y0, x1] * wx * (1 - wy) +
+        img[y1, x0] * (1 - wx) * wy +
+        img[y1, x1] * wx * wy
+    )
+    return np.clip(result, 0, 255).astype(np.uint8)
 
 
 # ===================================================================
 # [2] Fourier mid-band erosion
-#     Applies FFT, attenuates a ring of mid-frequencies, then IFFT.
-#     This softens texture detail without blurring edges the way a
-#     simple Gaussian would.
+#     FFT → attenuate a randomised ring of mid-frequencies → IFFT.
+#     Softens texture detail without blurring edges like a Gaussian.
 # ===================================================================
-def fourier_mid_band_erosion(img: np.ndarray, low_ratio: float = 0.15,
+def fourier_mid_band_erosion(img: np.ndarray,
+                              low_ratio: float = 0.15,
                               high_ratio: float = 0.45,
-                              attenuation: float = 0.35) -> np.ndarray:
+                              attenuation: float = 0.20) -> np.ndarray:
     h, w = img.shape[:2]
     cy, cx = h // 2, w // 2
     max_radius = min(cy, cx)
 
-    # Build radial mask
+    # Slight randomisation of the band edges
+    rng = np.random.default_rng()
+    low_ratio = np.clip(low_ratio + rng.uniform(-0.03, 0.03), 0.08, 0.25)
+    high_ratio = np.clip(high_ratio + rng.uniform(-0.05, 0.05), 0.30, 0.55)
+
     Y, X = np.ogrid[:h, :w]
     dist = np.sqrt((X - cx) ** 2 + (Y - cy) ** 2)
     r_low = max_radius * low_ratio
     r_high = max_radius * high_ratio
 
-    # 1.0 everywhere, attenuated in the mid-band ring
     mask = np.ones((h, w), dtype=np.float32)
     band = (dist >= r_low) & (dist <= r_high)
     mask[band] = attenuation
 
-    # Smooth the mask edges to avoid ringing
+    # Smooth transitions to avoid ringing
     transition = 0.05 * max_radius
     inner_edge = (dist >= r_low - transition) & (dist < r_low)
     outer_edge = (dist > r_high) & (dist <= r_high + transition)
@@ -135,114 +155,185 @@ def fourier_mid_band_erosion(img: np.ndarray, low_ratio: float = 0.15,
 
 # ===================================================================
 # [3] Halftone overlay
-#     Simulates a print halftone pattern by creating a dot grid whose
-#     dot size varies with local brightness, then blends it over the
-#     image.
+#     Rotated dot grid whose dot size varies with local brightness.
+#     Fully vectorised — no Python pixel loops.
 # ===================================================================
-def halftone_overlay(img: np.ndarray, dot_spacing: int = 6,
-                     blend: float = 0.12) -> np.ndarray:
+def halftone_overlay(img: np.ndarray, dot_spacing: int = 5,
+                     blend: float = 0.25) -> np.ndarray:
     h, w = img.shape[:2]
+    rng = np.random.default_rng()
+
+    # Random grid rotation angle (15–75°) for variety
+    angle_deg = rng.uniform(15, 75)
+    angle_rad = np.radians(angle_deg)
 
     # Grayscale luminance
     if img.ndim == 3:
-        gray = (0.299 * img[:, :, 0] + 0.587 * img[:, :, 1] + 0.114 * img[:, :, 2])
+        gray = 0.299 * img[:, :, 0] + 0.587 * img[:, :, 1] + 0.114 * img[:, :, 2]
     else:
         gray = img.astype(np.float32)
 
-    pattern = np.ones((h, w), dtype=np.float32)
+    # Build pixel coordinate arrays
+    ys, xs = np.mgrid[0:h, 0:w]
 
-    # Create dot centers on a grid
-    for cy in range(0, h, dot_spacing):
-        for cx in range(0, w, dot_spacing):
-            # Local brightness determines dot radius
-            region = gray[max(0, cy-1):cy+2, max(0, cx-1):cx+2]
-            brightness = region.mean() / 255.0  # 0=dark, 1=bright
-            # Darker areas get bigger dots (more ink)
-            radius = dot_spacing * 0.45 * (1.0 - brightness)
+    # Rotate coordinates into the halftone grid frame
+    cos_a, sin_a = np.cos(angle_rad), np.sin(angle_rad)
+    u = xs * cos_a + ys * sin_a
+    v = -xs * sin_a + ys * cos_a
 
-            if radius < 0.5:
-                continue
+    # Distance from each pixel to its nearest dot centre in the rotated grid
+    u_mod = np.remainder(u, dot_spacing) - dot_spacing / 2.0
+    v_mod = np.remainder(v, dot_spacing) - dot_spacing / 2.0
+    dist_sq = u_mod ** 2 + v_mod ** 2
 
-            # Draw filled circle into pattern
-            y_min = max(0, int(cy - radius - 1))
-            y_max = min(h, int(cy + radius + 2))
-            x_min = max(0, int(cx - radius - 1))
-            x_max = min(w, int(cx + radius + 2))
+    # Radius varies with brightness: darker → bigger dot (more ink)
+    brightness = gray / 255.0
+    radius = dot_spacing * 0.45 * (1.0 - brightness)
+    radius_sq = radius ** 2
 
-            for py in range(y_min, y_max):
-                for px in range(x_min, x_max):
-                    d = ((py - cy) ** 2 + (px - cx) ** 2) ** 0.5
-                    if d <= radius:
-                        pattern[py, px] = 0.0  # black dot
+    # Pattern: 0.0 where inside a dot, 1.0 outside
+    pattern = np.where(dist_sq <= radius_sq, 0.0, 1.0).astype(np.float32)
 
-    # Blend: result = img * (1-blend) + img*pattern * blend
-    pattern_3d = pattern[:, :, np.newaxis] if img.ndim == 3 else pattern
-    result = img.astype(np.float32) * (1.0 - blend + blend * pattern_3d)
+    # Blend
+    pattern_nd = pattern[:, :, np.newaxis] if img.ndim == 3 else pattern
+    result = img.astype(np.float32) * (1.0 - blend + blend * pattern_nd)
     return np.clip(result, 0, 255).astype(np.uint8)
 
 
 # ===================================================================
 # [4] Chromatic aberration
-#     Shifts the R, G, B channels by different pixel offsets,
-#     simulating lens dispersion.
+#     Randomised per-image RGB channel shifts with radial falloff
+#     (stronger at corners, like a real cheap lens).
 # ===================================================================
-def chromatic_aberration(img: np.ndarray, shift_r: tuple = (2, 1),
-                         shift_b: tuple = (-2, -1)) -> np.ndarray:
+def chromatic_aberration(img: np.ndarray,
+                         max_shift: int = 5) -> np.ndarray:
     if img.ndim != 3 or img.shape[2] < 3:
         return img
 
     h, w = img.shape[:2]
-    result = np.empty_like(img)
+    rng = np.random.default_rng()
 
-    # Green channel stays put
-    result[:, :, 1] = img[:, :, 1]
+    # Random shift for R and B channels (G stays put)
+    sr = (rng.integers(-max_shift, max_shift + 1),
+          rng.integers(-max_shift, max_shift + 1))
+    sb = (rng.integers(-max_shift, max_shift + 1),
+          rng.integers(-max_shift, max_shift + 1))
 
-    # Shift red
-    result[:, :, 0] = np.roll(np.roll(img[:, :, 0], shift_r[0], axis=1), shift_r[1], axis=0)
-    # Shift blue
-    result[:, :, 2] = np.roll(np.roll(img[:, :, 2], shift_b[0], axis=1), shift_b[1], axis=0)
+    # Ensure at least some shift
+    while sr == (0, 0):
+        sr = (rng.integers(-max_shift, max_shift + 1),
+              rng.integers(-max_shift, max_shift + 1))
+    while sb == (0, 0):
+        sb = (rng.integers(-max_shift, max_shift + 1),
+              rng.integers(-max_shift, max_shift + 1))
 
-    return result
+    # Radial weight: 0 at center, 1 at corners
+    cy, cx = h / 2.0, w / 2.0
+    max_r = np.sqrt(cx ** 2 + cy ** 2)
+    ys, xs = np.mgrid[0:h, 0:w]
+    radial = np.sqrt((xs - cx) ** 2 + (ys - cy) ** 2).astype(np.float32) / max_r
+    # Smooth ramp: shift is 30% at center, 100% at corners
+    weight = 0.3 + 0.7 * radial
+
+    result = img.copy().astype(np.float32)
+
+    # Shifted versions
+    r_shifted = np.roll(np.roll(img[:, :, 0], sr[0], axis=1), sr[1], axis=0).astype(np.float32)
+    b_shifted = np.roll(np.roll(img[:, :, 2], sb[0], axis=1), sb[1], axis=0).astype(np.float32)
+
+    # Blend original and shifted channels by radial weight
+    result[:, :, 0] = img[:, :, 0].astype(np.float32) * (1 - weight) + r_shifted * weight
+    result[:, :, 2] = img[:, :, 2].astype(np.float32) * (1 - weight) + b_shifted * weight
+
+    return np.clip(result, 0, 255).astype(np.uint8)
 
 
 # ===================================================================
-# [5] FGSM-style perturbation
-#     Uses the image's own gradient (Sobel edges) as a proxy for
-#     the gradient of a loss function — this concentrates noise
-#     around edges where classifiers are most sensitive, mimicking
-#     real FGSM output without needing a model.
-#     Applied LAST on the final composite.
+# [5] Color jitter
+#     Random brightness, contrast, and saturation shifts.
+#     Breaks colour histogram assumptions that classifiers rely on.
 # ===================================================================
-def fgsm_perturbation(img: np.ndarray, epsilon: float = 6.0) -> np.ndarray:
-    h, w = img.shape[:2]
+def color_jitter(img: np.ndarray,
+                 brightness_range: tuple = (-30, 30),
+                 contrast_range: tuple = (0.75, 1.25),
+                 saturation_range: tuple = (0.70, 1.30)) -> np.ndarray:
+    rng = np.random.default_rng()
     result = img.astype(np.float32)
 
+    # Brightness
+    result += rng.uniform(*brightness_range)
+
+    # Contrast (around per-channel mean)
+    contrast = rng.uniform(*contrast_range)
+    if img.ndim == 3:
+        for c in range(img.shape[2]):
+            mean_c = result[:, :, c].mean()
+            result[:, :, c] = (result[:, :, c] - mean_c) * contrast + mean_c
+    else:
+        mean_v = result.mean()
+        result = (result - mean_v) * contrast + mean_v
+
+    # Saturation (only for colour images)
+    if img.ndim == 3 and img.shape[2] >= 3:
+        gray = 0.299 * result[:, :, 0] + 0.587 * result[:, :, 1] + 0.114 * result[:, :, 2]
+        sat = rng.uniform(*saturation_range)
+        for c in range(3):
+            result[:, :, c] = gray * (1 - sat) + result[:, :, c] * sat
+
+    return np.clip(result, 0, 255).astype(np.uint8)
+
+
+# ===================================================================
+# [6] JPEG artifact simulation
+#     Compress and decompress at low quality to introduce blocking
+#     artifacts and quantisation noise.
+# ===================================================================
+def jpeg_artifact(img: np.ndarray, quality_range: tuple = (15, 35)) -> np.ndarray:
+    rng = np.random.default_rng()
+    quality = int(rng.uniform(*quality_range))
+
+    pil = Image.fromarray(img)
+    buf = io.BytesIO()
+    pil.save(buf, format="JPEG", quality=quality)
+    buf.seek(0)
+    compressed = Image.open(buf).convert("RGB")
+    return np.asarray(compressed).copy()
+
+
+# ===================================================================
+# [7] FGSM-style perturbation
+#     Uses gradient magnitude to weight noise — stronger perturbation
+#     along edges where classifiers are most sensitive, weaker in flat
+#     regions.  Applied LAST on the final composite.
+# ===================================================================
+def fgsm_perturbation(img: np.ndarray, epsilon: float = 10.0) -> np.ndarray:
+    h, w = img.shape[:2]
+    rng = np.random.default_rng()
+    result = img.astype(np.float32)
     channels = img.shape[2] if img.ndim == 3 else 1
 
     for c in range(channels):
         channel = img[:, :, c] if img.ndim == 3 else img
         ch = channel.astype(np.float32)
 
-        # Sobel-like gradient approximation
-        # Horizontal gradient
+        # Sobel-like gradients
         gx = np.zeros_like(ch)
         gx[:, 1:-1] = ch[:, 2:] - ch[:, :-2]
-
-        # Vertical gradient
         gy = np.zeros_like(ch)
         gy[1:-1, :] = ch[2:, :] - ch[:-2, :]
 
-        # Gradient magnitude as "importance" and sign as direction
-        grad = gx + gy
+        # Gradient magnitude (proper L2 norm, not sum)
+        grad_mag = np.sqrt(gx ** 2 + gy ** 2)
+        grad_mag_norm = grad_mag / (grad_mag.max() + 1e-6)  # normalise to [0, 1]
 
-        # FGSM: perturbation = epsilon * sign(gradient)
-        perturbation = epsilon * np.sign(grad)
+        # FGSM: epsilon * sign(gradient), but weighted by magnitude
+        # Strong at edges, weak in flat areas
+        grad_sum = gx + gy
+        perturbation = epsilon * np.sign(grad_sum) * (0.3 + 0.7 * grad_mag_norm)
 
-        # Add small uniform noise to flat regions so the perturbation
-        # isn't zero where the image is constant
-        rng = np.random.default_rng()
-        uniform_noise = rng.uniform(-epsilon * 0.3, epsilon * 0.3, (h, w)).astype(np.float32)
-        perturbation += uniform_noise
+        # Add small random noise to flat regions too
+        uniform_noise = rng.uniform(-epsilon * 0.25, epsilon * 0.25, (h, w)).astype(np.float32)
+        perturbation += uniform_noise * (1.0 - grad_mag_norm)
 
         if img.ndim == 3:
             result[:, :, c] = ch + perturbation
@@ -256,26 +347,29 @@ def fgsm_perturbation(img: np.ndarray, epsilon: float = 6.0) -> np.ndarray:
 # Full pipeline
 # ===================================================================
 def distort_image(img: Image.Image) -> Image.Image:
-    """Apply the full 5-stage distortion pipeline to a PIL Image."""
-    arr = np.asarray(img)
+    """Apply the full 7-stage distortion pipeline to a PIL Image."""
+    arr = np.asarray(img).copy()
 
-    # Ensure we work with a writable copy
-    arr = arr.copy()
-
-    # [1] Elastic micro-warp
-    arr = elastic_micro_warp(arr, alpha=8.0, sigma=4.0)
+    # [1] Elastic micro-warp (randomised alpha/sigma)
+    arr = elastic_micro_warp(arr)
 
     # [2] Fourier mid-band erosion
-    arr = fourier_mid_band_erosion(arr, low_ratio=0.15, high_ratio=0.45, attenuation=0.35)
+    arr = fourier_mid_band_erosion(arr)
 
-    # [3] Halftone overlay
-    arr = halftone_overlay(arr, dot_spacing=6, blend=0.12)
+    # [3] Halftone overlay (rotated grid)
+    arr = halftone_overlay(arr, dot_spacing=5, blend=0.25)
 
-    # [4] Chromatic aberration
-    arr = chromatic_aberration(arr, shift_r=(2, 1), shift_b=(-2, -1))
+    # [4] Chromatic aberration (randomised radial)
+    arr = chromatic_aberration(arr, max_shift=5)
 
-    # [5] FGSM perturbation (LAST — on the final composite)
-    arr = fgsm_perturbation(arr, epsilon=6.0)
+    # [5] Color jitter
+    arr = color_jitter(arr)
+
+    # [6] JPEG artifact simulation
+    arr = jpeg_artifact(arr)
+
+    # [7] FGSM perturbation (LAST — on the final composite)
+    arr = fgsm_perturbation(arr, epsilon=10.0)
 
     return Image.fromarray(arr)
 

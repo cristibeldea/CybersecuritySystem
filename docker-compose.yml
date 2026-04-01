@@ -24,9 +24,45 @@ services:
     environment:
       REDIS_HOST: redis
       REDIS_PORT: "6379"
-      # Minimal rate rule: > MAX_REQ in WINDOW_SECONDS => ban
+      # Module 1: Volume threshold
       WINDOW_SECONDS: "10"
       MAX_REQ: "20"
       BAN_SECONDS: "600"
+      # Module 2: Frequency regularity
+      FREQ_WINDOW: "60"
+      FREQ_MIN_REQUESTS: "6"
+      FREQ_CV_THRESHOLD: "0.10"
+      FREQ_BAN_SECONDS: "120"
+      # Module 3: Sequential pattern
+      SEQ_WINDOW: "120"
+      SEQ_MIN_REQUESTS: "8"
+      SEQ_MIN_PATTERN_LEN: "3"
+      SEQ_MIN_REPEATS: "3"
+      SEQ_TRANSITION_THRESHOLD: "0.90"
+      SEQ_BAN_SECONDS: "180"
+      # Module 4: Fingerprint consistency
+      FP_WINDOW: "300"
+      FP_MAX_IPS_PER_PRINT: "3"
+      FP_BAN_SECONDS: "300"
+      FP_MIN_REQUESTS: "3"
+      # Module 5: Funnel timing
+      FUNNEL_WINDOW: "300"
+      FUNNEL_MIN_SESSIONS: "3"
+      FUNNEL_SESSION_GAP: "30"
+      FUNNEL_CV_THRESHOLD: "0.08"
+      FUNNEL_MIN_PAGE_TO_ACTION: "0.8"
+      FUNNEL_BAN_SECONDS: "240"
+      # Module 6: Distributed botnet detection
+      BOT_WINDOW: "120"
+      BOT_ONBOARD_WINDOW: "10"
+      BOT_ONBOARD_THRESHOLD: "5"
+      BOT_SUBNET_THRESHOLD: "4"
+      BOT_BURST_WINDOW_MS: "500"
+      BOT_BURST_MIN_IPS: "4"
+      BOT_BURST_MIN_OCCURRENCES: "3"
+      BOT_TIMING_MIN_IPS: "3"
+      BOT_TIMING_TOLERANCE_MS: "200"
+      BOT_SEQUENTIAL_THRESHOLD: "4"
+      BOT_BAN_SECONDS: "600"
     depends_on:
       - redis
