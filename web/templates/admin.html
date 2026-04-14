@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Security Admin Dashboard</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+           background: #0f1117; color: #e0e0e0; padding: 20px; line-height: 1.5; }
+    h1 { font-size: 1.4rem; margin-bottom: 16px; color: #fff; }
+    h2 { font-size: 1.1rem; margin-bottom: 10px; color: #a0c4ff; border-bottom: 1px solid #2a2d3a; padding-bottom: 6px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+    .card { background: #1a1d2e; border: 1px solid #2a2d3a; border-radius: 8px; padding: 16px; }
+    .card.full { grid-column: 1 / -1; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th { text-align: left; padding: 6px 8px; color: #7a8ba8; border-bottom: 1px solid #2a2d3a; font-weight: 500; }
+    td { padding: 6px 8px; border-bottom: 1px solid #1e2133; }
+    tr:hover td { background: #1e2235; }
+    .mono { font-family: "SF Mono", "Fira Code", monospace; font-size: 0.82rem; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+    .badge-red { background: #3d1520; color: #ff6b6b; }
+    .badge-yellow { background: #3d3215; color: #ffd93d; }
+    .badge-green { background: #153d20; color: #6bff8b; }
+    .badge-blue { background: #152a3d; color: #6bb5ff; }
+    button, .btn { background: #2a3a5a; color: #e0e0e0; border: 1px solid #3a4a6a; padding: 5px 12px;
+                   border-radius: 4px; cursor: pointer; font-size: 0.82rem; }
+    button:hover, .btn:hover { background: #3a4a7a; }
+    .btn-danger { background: #5a2a2a; border-color: #7a3a3a; }
+    .btn-danger:hover { background: #7a3a3a; }
+    .btn-success { background: #2a5a3a; border-color: #3a7a4a; }
+    .btn-success:hover { background: #3a7a5a; }
+    input[type="text"], input[type="number"], input[type="password"] {
+      background: #12141f; border: 1px solid #2a2d3a; color: #e0e0e0; padding: 5px 10px;
+      border-radius: 4px; font-size: 0.85rem; }
+    input:focus { outline: none; border-color: #4a6a9a; }
+    select { background: #12141f; border: 1px solid #2a2d3a; color: #e0e0e0; padding: 5px 10px;
+             border-radius: 4px; font-size: 0.85rem; }
+    .status-bar { display: flex; gap: 20px; margin-bottom: 16px; flex-wrap: wrap; }
+    .stat { background: #1a1d2e; border: 1px solid #2a2d3a; border-radius: 8px; padding: 12px 20px; text-align: center; }
+    .stat .num { font-size: 1.8rem; font-weight: 700; color: #fff; }
+    .stat .label { font-size: 0.75rem; color: #7a8ba8; text-transform: uppercase; letter-spacing: 0.5px; }
+    .slider-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .slider-row label { min-width: 200px; font-size: 0.85rem; }
+    .slider-row input[type="range"] { flex: 1; accent-color: #4a6a9a; }
+    .slider-row .val { min-width: 60px; text-align: right; font-family: monospace; font-size: 0.85rem; }
+    .tabs { display: flex; gap: 4px; margin-bottom: 12px; }
+    .tab { padding: 6px 16px; background: #12141f; border: 1px solid #2a2d3a; border-radius: 6px 6px 0 0;
+           cursor: pointer; font-size: 0.85rem; }
+    .tab.active { background: #1a1d2e; border-bottom-color: #1a1d2e; color: #a0c4ff; }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .refresh-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+    .toast { position: fixed; bottom: 20px; right: 20px; background: #2a5a3a; color: #fff; padding: 10px 20px;
+             border-radius: 6px; font-size: 0.85rem; display: none; z-index: 999; }
+    .near-miss td { background: #2a2515 !important; }
+    @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <h1>Security Admin Dashboard</h1>
+
+  <div class="status-bar" id="statsBar">
+    <div class="stat"><div class="num" id="statBanned">-</div><div class="label">Active Bans</div></div>
+    <div class="stat"><div class="num" id="statRequests">-</div><div class="label">Recent Requests</div></div>
+    <div class="stat"><div class="num" id="statNearMiss">-</div><div class="label">Near Misses</div></div>
+    <div class="stat"><div class="num" id="statBanMode">-</div><div class="label">Ban Mode</div></div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="bans">Active Bans</div>
+    <div class="tab" data-tab="nearmiss">Near Misses</div>
+    <div class="tab" data-tab="history">Ban History</div>
+    <div class="tab" data-tab="logs">Request Logs</div>
+    <div class="tab" data-tab="thresholds">Thresholds</div>
+    <div class="tab" data-tab="settings">Settings</div>
+  </div>
+
+  <!-- ACTIVE BANS -->
+  <div class="tab-panel active" id="tab-bans">
+    <div class="card full">
+      <div class="refresh-bar">
+        <h2>Active Bans</h2>
+        <button onclick="loadBans()">Refresh</button>
+        <span style="margin-left:auto; font-size:0.8rem;">
+          Manual ban: <input type="text" id="manualBanIp" placeholder="IP address" style="width:140px">
+          <input type="number" id="manualBanDur" placeholder="seconds" value="600" style="width:80px">
+          <button class="btn-danger" onclick="manualBan()">Ban</button>
+        </span>
+      </div>
+      <table>
+        <thead><tr><th>IP Address</th><th>Reason</th><th>TTL Remaining</th><th>Actions</th></tr></thead>
+        <tbody id="bansBody"><tr><td colspan="4">Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- NEAR MISSES -->
+  <div class="tab-panel" id="tab-nearmiss">
+    <div class="card full">
+      <div class="refresh-bar">
+        <h2>Near-Threshold Events</h2>
+        <button onclick="loadNearMisses()">Refresh</button>
+        <span style="font-size:0.8rem; color:#7a8ba8;">Requests that scored within 20% of the ban threshold</span>
+      </div>
+      <table>
+        <thead><tr><th>Time</th><th>IP</th><th>Module</th><th>Score</th><th>Threshold</th><th>Details</th></tr></thead>
+        <tbody id="nearMissBody"><tr><td colspan="6">Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- BAN HISTORY -->
+  <div class="tab-panel" id="tab-history">
+    <div class="card full">
+      <div class="refresh-bar">
+        <h2>Ban History</h2>
+        <button onclick="loadBanHistory()">Refresh</button>
+      </div>
+      <table>
+        <thead><tr><th>Time</th><th>IP</th><th>Reason</th><th>Duration</th></tr></thead>
+        <tbody id="historyBody"><tr><td colspan="4">Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- REQUEST LOGS -->
+  <div class="tab-panel" id="tab-logs">
+    <div class="card full">
+      <div class="refresh-bar">
+        <h2>Recent Requests</h2>
+        <button onclick="loadLogs()">Refresh</button>
+        <span style="font-size:0.8rem; color:#7a8ba8;">Last 100 requests (excluding noise)</span>
+      </div>
+      <table>
+        <thead><tr><th>Time</th><th>IP</th><th>Method</th><th>Path</th><th>Kind</th><th>UA (short)</th></tr></thead>
+        <tbody id="logsBody"><tr><td colspan="6">Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- THRESHOLDS -->
+  <div class="tab-panel" id="tab-thresholds">
+    <div class="grid">
+      <div class="card">
+        <h2>Module 1: Volume Threshold</h2>
+        <div class="slider-row">
+          <label>Max requests per window</label>
+          <input type="range" min="5" max="100" data-key="max_req" class="thresh-slider">
+          <span class="val" data-key="max_req">-</span>
+        </div>
+        <div class="slider-row">
+          <label>Window (seconds)</label>
+          <input type="range" min="5" max="120" data-key="window_seconds" class="thresh-slider">
+          <span class="val" data-key="window_seconds">-</span>
+        </div>
+        <div class="slider-row">
+          <label>Ban duration (seconds)</label>
+          <input type="range" min="30" max="3600" step="30" data-key="ban_seconds" class="thresh-slider">
+          <span class="val" data-key="ban_seconds">-</span>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Module 2: Frequency Regularity</h2>
+        <div class="slider-row">
+          <label>CV threshold</label>
+          <input type="range" min="0.01" max="0.50" step="0.01" data-key="freq_cv_threshold" class="thresh-slider">
+          <span class="val" data-key="freq_cv_threshold">-</span>
+        </div>
+        <div class="slider-row">
+          <label>Min requests</label>
+          <input type="range" min="3" max="20" data-key="freq_min_requests" class="thresh-slider">
+          <span class="val" data-key="freq_min_requests">-</span>
+        </div>
+        <div class="slider-row">
+          <label>Ban duration (seconds)</label>
+          <input type="range" min="30" max="3600" step="30" data-key="freq_ban_seconds" class="thresh-slider">
+          <span class="val" data-key="freq_ban_seconds">-</span>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Module 3: Sequential Pattern</h2>
+        <div class="slider-row">
+          <label>Transition threshold</label>
+          <input type="range" min="0.50" max="1.00" step="0.01" data-key="seq_transition_threshold" class="thresh-slider">
+          <span class="val" data-key="seq_transition_threshold">-</span>
+        </div>
+        <div class="slider-row">
+          <label>Min repeats</label>
+          <input type="range" min="2" max="10" data-key="seq_min_repeats" class="thresh-slider">
+          <span class="val" data-key="seq_min_repeats">-</span>
+        </div>
+        <div class="slider-row">
+          <label>Ban duration (seconds)</label>
+          <input type="range" min="30" max="3600" step="30" data-key="seq_ban_seconds" class="thresh-slider">
+          <span class="val" data-key="seq_ban_seconds">-</span>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Module 4: Fingerprint Consistency</h2>
+        <div class="slider-row">
+          <label>Max IPs per fingerprint</label>
+          <input type="range" min="2" max="10" data-key="fp_max_ips_per_print" class="thresh-slider">
+          <span class="val" data-key="fp_max_ips_per_print">-</span>
+        </div>
+        <div class="slider-row">
+          <label>Ban duration (seconds)</label>
+          <input type="range" min="30" max="3600" step="30" data-key="fp_ban_seconds" class="thresh-slider">
+          <span class="val" data-key="fp_ban_seconds">-</span>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Module 5: Funnel Timing</h2>
+        <div class="slider-row">
+          <label>CV threshold</label>
+          <input type="range" min="0.01" max="0.50" step="0.01" data-key="funnel_cv_threshold" class="thresh-slider">
+          <span class="val" data-key="funnel_cv_threshold">-</span>
+        </div>
+        <div class="slider-row">
+          <label>Min sessions</label>
+          <input type="range" min="2" max="10" data-key="funnel_min_sessions" class="thresh-slider">
+          <span class="val" data-key="funnel_min_sessions">-</span>
+        </div>
+        <div class="slider-row">
+          <label>Ban duration (seconds)</label>
+          <input type="range" min="30" max="3600" step="30" data-key="funnel_ban_seconds" class="thresh-slider">
+          <span class="val" data-key="funnel_ban_seconds">-</span>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Module 6: Botnet Detection</h2>
+        <div class="slider-row">
+          <label>Subnet threshold</label>
+          <input type="range" min="2" max="10" data-key="bot_subnet_threshold" class="thresh-slider">
+          <span class="val" data-key="bot_subnet_threshold">-</span>
+        </div>
+        <div class="slider-row">
+          <label>Onboarding threshold</label>
+          <input type="range" min="2" max="20" data-key="bot_onboard_threshold" class="thresh-slider">
+          <span class="val" data-key="bot_onboard_threshold">-</span>
+        </div>
+        <div class="slider-row">
+          <label>Ban duration (seconds)</label>
+          <input type="range" min="30" max="3600" step="30" data-key="bot_ban_seconds" class="thresh-slider">
+          <span class="val" data-key="bot_ban_seconds">-</span>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Behavioral Analysis</h2>
+        <div class="slider-row">
+          <label>Risk threshold</label>
+          <input type="range" min="30" max="100" data-key="behavior_risk_threshold" class="thresh-slider">
+          <span class="val" data-key="behavior_risk_threshold">-</span>
+        </div>
+        <div class="slider-row">
+          <label>Ban duration (seconds)</label>
+          <input type="range" min="30" max="3600" step="30" data-key="behavior_ban_seconds" class="thresh-slider">
+          <span class="val" data-key="behavior_ban_seconds">-</span>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Honeypot</h2>
+        <div class="slider-row">
+          <label>Ban duration (seconds)</label>
+          <input type="range" min="30" max="3600" step="30" data-key="honeypot_ban_seconds" class="thresh-slider">
+          <span class="val" data-key="honeypot_ban_seconds">-</span>
+        </div>
+        <div class="slider-row">
+          <label>Captcha ban (seconds)</label>
+          <input type="range" min="30" max="3600" step="30" data-key="captcha_ban_seconds" class="thresh-slider">
+          <span class="val" data-key="captcha_ban_seconds">-</span>
+        </div>
+      </div>
+    </div>
+    <button class="btn-success" onclick="saveThresholds()" style="margin-top:8px;">Save All Thresholds</button>
+  </div>
+
+  <!-- SETTINGS -->
+  <div class="tab-panel" id="tab-settings">
+    <div class="grid">
+      <div class="card">
+        <h2>Ban Mode</h2>
+        <p style="font-size:0.85rem; color:#7a8ba8; margin-bottom:10px;">
+          Choose how banned clients are identified. IP-only is stricter but may affect shared networks.
+          IP + Fingerprint is more precise but easier to evade (fingerprints can be spoofed for free).
+        </p>
+        <select id="banModeSelect" style="width:100%; padding:8px;">
+          <option value="ip">IP Address Only (recommended)</option>
+          <option value="ip_fingerprint">IP + Browser Fingerprint</option>
+        </select>
+        <button class="btn-success" onclick="saveBanMode()" style="margin-top:10px;">Save Ban Mode</button>
+      </div>
+      <div class="card">
+        <h2>Admin Credentials</h2>
+        <p style="font-size:0.85rem; color:#7a8ba8; margin-bottom:10px;">
+          Change the admin password. Username is always <code>admin</code>.
+        </p>
+        <input type="password" id="newPassword" placeholder="New password" style="width:100%; margin-bottom:8px;">
+        <button class="btn-success" onclick="changePassword()">Change Password</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const API = "/admin/api";
+
+    // --- Tabs ---
+    document.querySelectorAll(".tab").forEach(tab => {
+      tab.addEventListener("click", () => {
+        document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+        document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+        tab.classList.add("active");
+        document.getElementById("tab-" + tab.dataset.tab).classList.add("active");
+      });
+    });
+
+    function toast(msg, ms) {
+      const t = document.getElementById("toast");
+      t.textContent = msg;
+      t.style.display = "block";
+      setTimeout(() => { t.style.display = "none"; }, ms || 2000);
+    }
+
+    function fmtTime(ts) {
+      if (!ts) return "-";
+      const d = new Date(ts * 1000);
+      return d.toLocaleTimeString() + " " + d.toLocaleDateString();
+    }
+
+    function fmtTTL(s) {
+      if (s <= 0) return "expired";
+      if (s < 60) return s + "s";
+      if (s < 3600) return Math.floor(s / 60) + "m " + (s % 60) + "s";
+      return Math.floor(s / 3600) + "h " + Math.floor((s % 3600) / 60) + "m";
+    }
+
+    function escHtml(s) {
+      const d = document.createElement("div");
+      d.textContent = s;
+      return d.innerHTML;
+    }
+
+    // --- Active Bans ---
+    async function loadBans() {
+      const res = await fetch(API + "/bans");
+      const data = await res.json();
+      const body = document.getElementById("bansBody");
+      document.getElementById("statBanned").textContent = data.bans.length;
+      if (!data.bans.length) {
+        body.innerHTML = '<tr><td colspan="4" style="color:#7a8ba8">No active bans</td></tr>';
+        return;
+      }
+      body.innerHTML = data.bans.map(b =>
+        `<tr>
+          <td class="mono">${escHtml(b.ip)}</td>
+          <td>${escHtml(b.reason || "unknown")}</td>
+          <td>${fmtTTL(b.ttl)}</td>
+          <td><button class="btn-success" onclick="unban('${escHtml(b.ip)}')">Unban</button></td>
+        </tr>`
+      ).join("");
+    }
+
+    async function unban(ip) {
+      await fetch(API + "/unban", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ip: ip})
+      });
+      toast("Unbanned " + ip);
+      loadBans();
+    }
+
+    async function manualBan() {
+      const ip = document.getElementById("manualBanIp").value.trim();
+      const dur = parseInt(document.getElementById("manualBanDur").value) || 600;
+      if (!ip) return;
+      await fetch(API + "/ban", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ip: ip, duration: dur, reason: "manual:admin"})
+      });
+      toast("Banned " + ip + " for " + dur + "s");
+      document.getElementById("manualBanIp").value = "";
+      loadBans();
+    }
+
+    // --- Near Misses ---
+    async function loadNearMisses() {
+      const res = await fetch(API + "/near-misses");
+      const data = await res.json();
+      const body = document.getElementById("nearMissBody");
+      document.getElementById("statNearMiss").textContent = data.events.length;
+      if (!data.events.length) {
+        body.innerHTML = '<tr><td colspan="6" style="color:#7a8ba8">No near-miss events</td></tr>';
+        return;
+      }
+      body.innerHTML = data.events.map(e =>
+        `<tr class="near-miss">
+          <td>${fmtTime(e.ts)}</td>
+          <td class="mono">${escHtml(e.ip)}</td>
+          <td><span class="badge badge-yellow">${escHtml(e.module)}</span></td>
+          <td class="mono">${e.score}</td>
+          <td class="mono">${e.threshold}</td>
+          <td style="font-size:0.8rem">${escHtml(e.details || "")}</td>
+        </tr>`
+      ).join("");
+    }
+
+    // --- Ban History ---
+    async function loadBanHistory() {
+      const res = await fetch(API + "/ban-history");
+      const data = await res.json();
+      const body = document.getElementById("historyBody");
+      if (!data.history.length) {
+        body.innerHTML = '<tr><td colspan="4" style="color:#7a8ba8">No ban history</td></tr>';
+        return;
+      }
+      body.innerHTML = data.history.map(h =>
+        `<tr>
+          <td>${fmtTime(h.ts)}</td>
+          <td class="mono">${escHtml(h.ip)}</td>
+          <td>${escHtml(h.reason)}</td>
+          <td>${fmtTTL(h.duration)}</td>
+        </tr>`
+      ).join("");
+    }
+
+    // --- Request Logs ---
+    async function loadLogs() {
+      const res = await fetch(API + "/logs");
+      const data = await res.json();
+      const body = document.getElementById("logsBody");
+      document.getElementById("statRequests").textContent = data.logs.length;
+      if (!data.logs.length) {
+        body.innerHTML = '<tr><td colspan="6" style="color:#7a8ba8">No recent requests</td></tr>';
+        return;
+      }
+      body.innerHTML = data.logs.map(l =>
+        `<tr>
+          <td>${fmtTime(l.ts)}</td>
+          <td class="mono">${escHtml(l.ip)}</td>
+          <td><span class="badge badge-blue">${escHtml(l.method)}</span></td>
+          <td class="mono">${escHtml(l.path)}</td>
+          <td><span class="badge badge-green">${escHtml(l.kind)}</span></td>
+          <td style="font-size:0.8rem; max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${escHtml((l.ua || "").slice(0, 60))}</td>
+        </tr>`
+      ).join("");
+    }
+
+    // --- Thresholds ---
+    async function loadThresholds() {
+      const res = await fetch(API + "/thresholds");
+      const data = await res.json();
+      document.querySelectorAll(".thresh-slider").forEach(slider => {
+        const key = slider.dataset.key;
+        if (data[key] !== undefined) {
+          slider.value = data[key];
+          const valEl = document.querySelector('.val[data-key="' + key + '"]');
+          if (valEl) valEl.textContent = data[key];
+        }
+      });
+    }
+
+    document.querySelectorAll(".thresh-slider").forEach(slider => {
+      slider.addEventListener("input", () => {
+        const valEl = document.querySelector('.val[data-key="' + slider.dataset.key + '"]');
+        if (valEl) valEl.textContent = slider.value;
+      });
+    });
+
+    async function saveThresholds() {
+      const payload = {};
+      document.querySelectorAll(".thresh-slider").forEach(slider => {
+        payload[slider.dataset.key] = parseFloat(slider.value);
+      });
+      await fetch(API + "/thresholds", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(payload)
+      });
+      toast("Thresholds saved");
+    }
+
+    // --- Settings ---
+    async function loadSettings() {
+      const res = await fetch(API + "/settings");
+      const data = await res.json();
+      document.getElementById("banModeSelect").value = data.ban_mode || "ip";
+      document.getElementById("statBanMode").textContent = data.ban_mode === "ip_fingerprint" ? "IP+FP" : "IP";
+    }
+
+    async function saveBanMode() {
+      const mode = document.getElementById("banModeSelect").value;
+      await fetch(API + "/settings", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ban_mode: mode})
+      });
+      document.getElementById("statBanMode").textContent = mode === "ip_fingerprint" ? "IP+FP" : "IP";
+      toast("Ban mode updated to: " + mode);
+    }
+
+    async function changePassword() {
+      const pw = document.getElementById("newPassword").value;
+      if (!pw || pw.length < 4) { toast("Password too short"); return; }
+      await fetch(API + "/password", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({password: pw})
+      });
+      document.getElementById("newPassword").value = "";
+      toast("Password changed");
+    }
+
+    // --- Init ---
+    async function init() {
+      await Promise.all([loadBans(), loadNearMisses(), loadBanHistory(), loadLogs(), loadThresholds(), loadSettings()]);
+    }
+    init();
+    setInterval(() => { loadBans(); loadNearMisses(); }, 15000);
+  </script>
+</body>
+</html>

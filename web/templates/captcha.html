@@ -65,7 +65,7 @@
 
       .hidden { display: none !important; }
 
-      .row {
+      .row, .field-wrap {
         display: flex;
         gap: 12px;
         align-items: center;
@@ -238,8 +238,8 @@
         border-color: var(--accent);
       }
 
-      /* Honeypot decoys — visible to parsers, invisible to users */
-      .vr-field {
+      /* Auxiliary layout helpers */
+      .input-group {
         opacity: 0;
         pointer-events: none;
         position: absolute;
@@ -251,7 +251,7 @@
         border: 0;
       }
 
-      .vr-field-b {
+      .ctrl-block {
         height: 0;
         width: 0;
         overflow: hidden;
@@ -262,7 +262,7 @@
         white-space: nowrap;
       }
 
-      .vr-offscreen {
+      .sr-only {
         position: fixed;
         left: -9999px;
         top: -9999px;
@@ -307,52 +307,57 @@
         <span class="pill">Stage: <span class="mono" id="stageLabel">-</span></span>
       </div>
 
-      <!-- Honeypot: off-screen decoys -->
-      <div class="vr-offscreen" aria-hidden="true">
-        <div class="hold-btn" data-action="verify" tabindex="-1">
+      <div class="sr-only" aria-hidden="true">
+        <div id="holdBtn" class="hold-btn" data-action="verify" tabindex="-1">
           <div class="hold-fill"></div>
           <span class="hold-label">Hold to verify</span>
         </div>
-        <div class="hold-btn" data-action="verify" tabindex="-1">
+        <div id="holdBtn" class="hold-btn" data-action="verify" tabindex="-1">
           <div class="hold-fill"></div>
           <span class="hold-label">Hold to verify</span>
         </div>
       </div>
 
+      <form action="/hp-form" method="POST" class="sr-only" aria-hidden="true">
+        <input type="hidden" name="ctx" value="sr0">
+        <button type="submit" id="holdBtn" class="hold-btn" data-action="verify" tabindex="-1">
+          <span class="hold-fill"></span>
+          <span class="hold-label">Hold to verify</span>
+        </button>
+      </form>
+
       <div class="card" id="challengeCard">
-        <!-- Stage 0: hold button -->
         <div id="checkboxStage" class="hidden">
-          <!-- Honeypot: 2 hidden decoys before real button -->
-          <div class="vr-field" aria-hidden="true">
-            <div class="hold-btn" data-action="verify" tabindex="-1">
+          <div class="input-group" aria-hidden="true">
+            <div id="holdBtn" class="hold-btn" data-action="verify" tabindex="-1">
               <div class="hold-fill"></div>
               <span class="hold-label">Hold to verify</span>
             </div>
           </div>
-          <div class="vr-field-b" aria-hidden="true">
-            <div class="hold-btn" data-action="verify" tabindex="-1">
-              <div class="hold-fill"></div>
+          <form action="/hp-form" method="POST" class="ctrl-block" aria-hidden="true">
+            <input type="hidden" name="ctx" value="cb0">
+            <button type="submit" id="holdBtn" class="hold-btn" data-action="verify" tabindex="-1">
+              <span class="hold-fill"></span>
               <span class="hold-label">Hold to verify</span>
-            </div>
-          </div>
+            </button>
+          </form>
 
-          <!-- Real button -->
-          <div class="row">
+          <div class="field-wrap">
             <div id="holdBtn" class="hold-btn">
-              <div id="holdFill" class="hold-fill"></div>
-              <span class="hold-label" id="holdLabel">Hold to verify</span>
-            </div>
-          </div>
-
-          <!-- Honeypot: 2 hidden decoys after real button -->
-          <div class="vr-field" aria-hidden="true">
-            <div class="hold-btn" data-action="verify" tabindex="-1">
               <div class="hold-fill"></div>
               <span class="hold-label">Hold to verify</span>
             </div>
           </div>
-          <div class="vr-field-b" aria-hidden="true">
-            <div class="hold-btn" data-action="verify" tabindex="-1">
+
+          <form action="/hp-form" method="POST" class="input-group" aria-hidden="true">
+            <input type="hidden" name="ctx" value="cb1">
+            <button type="submit" id="holdBtn" class="hold-btn" data-action="verify" tabindex="-1">
+              <span class="hold-fill"></span>
+              <span class="hold-label">Hold to verify</span>
+            </button>
+          </form>
+          <div class="ctrl-block" aria-hidden="true">
+            <div id="holdBtn" class="hold-btn" data-action="verify" tabindex="-1">
               <div class="hold-fill"></div>
               <span class="hold-label">Hold to verify</span>
             </div>
@@ -543,9 +548,9 @@
       const checkboxStage = document.getElementById("checkboxStage");
       const gridStage = document.getElementById("gridStage");
 
-      const holdBtn = document.getElementById("holdBtn");
-      const holdFill = document.getElementById("holdFill");
-      const holdLabel = document.getElementById("holdLabel");
+      const holdBtn = document.querySelector("#checkboxStage .field-wrap .hold-btn");
+      const holdFill = holdBtn.querySelector(".hold-fill");
+      const holdLabel = holdBtn.querySelector(".hold-label");
       const gridEl = document.getElementById("grid");
       const gridPrompt = document.getElementById("gridPrompt");
       const gridHint = document.getElementById("gridHint");
@@ -582,7 +587,7 @@
       let holdDone = false;
       let holdStart = 0;
       let holdRaf = null;
-      const HOLD_DURATION_MS = 1500;
+      const HOLD_DURATION_MS = 1000;
 
       function renderCheckbox() {
         hideAllStages();
@@ -835,11 +840,12 @@
         }
       }
 
-      // Honeypot trap — any interaction with decoy buttons flags the session
+      // Flag interaction with any hold-btn that isn't the real one
       let honeypotTriggered = false;
-      document.querySelectorAll('[data-action="verify"]').forEach(decoy => {
+      document.querySelectorAll('.hold-btn').forEach(el => {
+        if (el === holdBtn) return;
         ["mousedown", "touchstart", "click", "pointerdown"].forEach(evt => {
-          decoy.addEventListener(evt, () => { honeypotTriggered = true; }, { passive: true });
+          el.addEventListener(evt, () => { honeypotTriggered = true; }, { passive: true });
         });
       });
 

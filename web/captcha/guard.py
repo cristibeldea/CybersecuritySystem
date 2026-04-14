@@ -527,63 +527,46 @@ def guess_mimetype(path: str) -> str:
 
 
 # ----------------------------
-# Semantic category groups
-# ----------------------------
-CATEGORY_GROUPS: Dict[str, List[str]] = {
-    "vehicles":   ["cars", "buses", "trucks", "motorcycles", "bicycles", "airplanes", "boats"],
-    "animals":    ["cats", "dogs", "birds", "horses"],
-    "nature":     ["trees", "flowers", "mountains", "lakes"],
-    "structures": ["bridges", "stairs", "chimneys", "doors", "windows", "fences"],
-    "furniture":  ["benches", "chairs"],
-    "traffic":    ["semaphores", "traffic_lights", "stop_signs", "crosswalks", "fire_hydrants"],
-    "misc":       ["clocks", "umbrellas"],
+# Human-readable display names for categories
+CATEGORY_DISPLAY: Dict[str, str] = {
+    "abstract": "abstract art",
+    "airplanes": "airplanes",
+    "benches": "benches",
+    "bicycles": "bicycles",
+    "birds": "birds",
+    "boats": "boats",
+    "bridges": "bridges",
+    "buses": "buses",
+    "cars": "cars",
+    "cats": "cats",
+    "chairs": "chairs",
+    "chimneys": "chimneys",
+    "clocks": "clocks",
+    "crosswalks": "crosswalks",
+    "dogs": "dogs",
+    "doors": "doors",
+    "fences": "fences",
+    "fire_hydrants": "fire hydrants",
+    "flowers": "flowers",
+    "horses": "horses",
+    "lakes": "lakes",
+    "motorcycles": "motorcycles",
+    "mountains": "mountains",
+    "semaphores": "semaphores",
+    "situational": "situational scenes",
+    "stairs": "stairs",
+    "stop_signs": "stop signs",
+    "traffic_lights": "traffic lights",
+    "trees": "trees",
+    "trucks": "trucks",
+    "umbrellas": "umbrellas",
+    "windows": "windows",
 }
-
-# Reverse lookup: category -> group name
-_CAT_TO_GROUP: Dict[str, str] = {}
-for _grp, _cats in CATEGORY_GROUPS.items():
-    for _c in _cats:
-        _CAT_TO_GROUP[_c] = _grp
-
-
-def _available_groups() -> Dict[str, List[str]]:
-    """Return only groups whose categories actually have images on disk."""
-    live_cats = set(list_grid_categories())
-    out: Dict[str, List[str]] = {}
-    for grp, cats in CATEGORY_GROUPS.items():
-        alive = [c for c in cats if c in live_cats]
-        if alive:
-            out[grp] = alive
-    return out
-
-
-def _pick_images_from_group(group_cats: List[str], n: int,
-                            exclude_cats: Optional[List[str]] = None) -> List[Tuple[str, str]]:
-    """Pick n random (path, category) pairs from categories in a group."""
-    pool: List[Tuple[str, str]] = []
-    for cat in group_cats:
-        if exclude_cats and cat in exclude_cats:
-            continue
-        for p in list_images_in_category(cat):
-            pool.append((p, cat))
-    if len(pool) < n:
-        raise RuntimeError(f"Not enough images in group (need {n}, have {len(pool)})")
-    return random.sample(pool, n)
-
-
-def _pick_images_from_category(category: str, n: int) -> List[Tuple[str, str]]:
-    """Pick n random (path, category) pairs from a single category."""
-    imgs = list_images_in_category(category)
-    if len(imgs) < n:
-        raise RuntimeError(f"Category '{category}' needs at least {n} images, has {len(imgs)}")
-    return [(p, category) for p in random.sample(imgs, n)]
 
 
 # ----------------------------
 # Challenge builders
 # ----------------------------
-TASK_TYPES = ["odd_one_out", "two_outliers", "matching_pair"]
-
 
 def _make_asset_token(secret: str, nonce: str, payload: Dict[str, Any]) -> str:
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -613,8 +596,8 @@ def _build_tiles(secret: str, nonce: str,
     answers: List[str] = []
 
     for idx, (path, cat, is_answer) in enumerate(items):
-        cx = random.uniform(0.4, 0.6)
-        cy = random.uniform(0.4, 0.6)
+        cx = random.uniform(0.45, 0.55)
+        cy = random.uniform(0.45, 0.55)
         token = _make_asset_token(secret, nonce, {
             "kind": "grid", "path": path, "idx": idx,
             "cx": round(cx, 4), "cy": round(cy, 4),
@@ -627,163 +610,55 @@ def _build_tiles(secret: str, nonce: str,
     return tiles, sorted(answers)
 
 
-def _build_odd_one_out(secret: str, nonce: str,
-                       used_groups: List[str]) -> Dict[str, Any]:
-    """8 real images from one category + 1 fake image from the same category.
-    Task: 'Select the image that does not belong with the others.'"""
-    # Pick a category that has >=8 real images AND >=1 fake image
+def _build_select_not_containing(secret: str, nonce: str,
+                                 used_categories: List[str]) -> Dict[str, Any]:
+    """Grid of real + fake images from one category.
+    Task: 'Select only the pictures that don't contain <object>.'
+    Correct answers = the fake images."""
     all_cats = list_grid_categories()
+    # Need enough real images and at least 2 fakes
     eligible = [c for c in all_cats
-                if len(list_images_in_category(c)) >= 8
-                and len(list_fake_images_in_category(c)) >= 1]
-    if not eligible:
-        # Fallback: relax to any category with enough real images
-        eligible = [c for c in all_cats if len(list_images_in_category(c)) >= 8]
-
-    cat = random.choice(eligible)
-    real_images = _pick_images_from_category(cat, 8)
-
-    # Pick 1 fake from the same category
-    fakes = list_fake_images_in_category(cat)
-    if fakes:
-        fake_path = random.choice(fakes)
-        outlier = [(fake_path, cat)]
-    else:
-        # Fallback: pick from a different group if no fakes available
-        groups = _available_groups()
-        cat_group = _CAT_TO_GROUP.get(cat, "")
-        other_groups = [g for g in groups if g != cat_group]
-        outlier_group = random.choice(other_groups)
-        outlier = _pick_images_from_group(groups[outlier_group], 1)
-
-    items = [(p, c, False) for p, c in real_images] + \
-            [(p, c, True) for p, c in outlier]
-
-    tiles, answers = _build_tiles(secret, nonce, items)
-
-    return {
-        "kind": "grid",
-        "task_type": "odd_one_out",
-        "prompt": "Select the image that does not belong with the others.",
-        "expect_count": 1,
-        "tiles": tiles,
-        "correct_ids": answers,
-        "_category": cat,
-    }
-
-
-def _build_two_outliers(secret: str, nonce: str,
-                        used_groups: List[str]) -> Dict[str, Any]:
-    """7 real images from one category + 2 fake images from the same category.
-    Task: 'Select the two images that don't belong with the others.'"""
-    # Pick a category that has >=7 real images AND >=2 fake images
-    all_cats = list_grid_categories()
-    eligible = [c for c in all_cats
-                if len(list_images_in_category(c)) >= 7
+                if c not in used_categories
+                and len(list_images_in_category(c)) >= 6
                 and len(list_fake_images_in_category(c)) >= 2]
     if not eligible:
-        eligible = [c for c in all_cats if len(list_images_in_category(c)) >= 7]
+        eligible = [c for c in all_cats
+                    if len(list_images_in_category(c)) >= 6
+                    and len(list_fake_images_in_category(c)) >= 2]
+    if not eligible:
+        raise RuntimeError("No categories with enough real + fake images")
 
     cat = random.choice(eligible)
-    real_images = _pick_images_from_category(cat, 7)
-
-    # Pick 2 fakes from the same category
     fakes = list_fake_images_in_category(cat)
-    if len(fakes) >= 2:
-        fake_paths = random.sample(fakes, 2)
-        outliers = [(p, cat) for p in fake_paths]
-    else:
-        # Fallback: use whatever fakes exist + fill from different group
-        groups = _available_groups()
-        cat_group = _CAT_TO_GROUP.get(cat, "")
-        other_groups = [g for g in groups if g != cat_group and len(groups[g]) >= 1]
-        outliers = [(p, cat) for p in fakes]
-        needed = 2 - len(outliers)
-        if other_groups:
-            outlier_group = random.choice(other_groups)
-            outliers += _pick_images_from_group(groups[outlier_group], needed)
+    num_fakes = min(len(fakes), random.randint(2, 3))
+    chosen_fakes = random.sample(fakes, num_fakes)
+    num_real = 9 - num_fakes
+    real_imgs = list_images_in_category(cat)
+    chosen_real = random.sample(real_imgs, min(num_real, len(real_imgs)))
 
-    items = [(p, c, False) for p, c in real_images] + \
-            [(p, c, True) for p, c in outliers]
+    items = [(p, cat, False) for p in chosen_real] + \
+            [(p, cat, True) for p in chosen_fakes]
 
     tiles, answers = _build_tiles(secret, nonce, items)
 
+    display_name = CATEGORY_DISPLAY.get(cat, cat.replace("_", " "))
+
     return {
         "kind": "grid",
-        "task_type": "two_outliers",
-        "prompt": "Select the two images that don't belong with the others.",
-        "expect_count": 2,
+        "task_type": "select_not_containing",
+        "prompt": f"Select only the pictures that don't contain {display_name}.",
+        "expect_count": num_fakes,
         "tiles": tiles,
         "correct_ids": answers,
         "_category": cat,
-    }
-
-
-def _build_matching_pair(secret: str, nonce: str,
-                         used_categories: List[str]) -> Dict[str, Any]:
-    """9 images each from a different category, except exactly 2 share the
-    same category. Task: 'Select the two images that belong to the same category.'"""
-    all_cats = list_grid_categories()
-    available = [c for c in all_cats if c not in used_categories and
-                 len(list_images_in_category(c)) >= 2]
-    if not available:
-        available = [c for c in all_cats if len(list_images_in_category(c)) >= 2]
-
-    # The "pair" category: need at least 2 images
-    pair_cat = random.choice(available)
-    pair_images = _pick_images_from_category(pair_cat, 2)
-
-    # 7 singleton images, each from a different category
-    singleton_cats = [c for c in all_cats if c != pair_cat]
-    random.shuffle(singleton_cats)
-    singleton_cats = singleton_cats[:7]
-
-    singleton_images: List[Tuple[str, str]] = []
-    for cat in singleton_cats:
-        imgs = list_images_in_category(cat)
-        if imgs:
-            singleton_images.append((random.choice(imgs), cat))
-
-    # Pad if we couldn't fill 7 unique categories
-    while len(singleton_images) < 7:
-        fallback_cats = [c for c in all_cats if c != pair_cat and
-                         c not in [s[1] for s in singleton_images]]
-        if not fallback_cats:
-            break
-        cat = random.choice(fallback_cats)
-        imgs = list_images_in_category(cat)
-        if imgs:
-            singleton_images.append((random.choice(imgs), cat))
-
-    items = [(p, c, True) for p, c in pair_images] + \
-            [(p, c, False) for p, c in singleton_images]
-
-    tiles, answers = _build_tiles(secret, nonce, items)
-
-    return {
-        "kind": "grid",
-        "task_type": "matching_pair",
-        "prompt": "Select the two images that belong to the same category.",
-        "expect_count": 2,
-        "tiles": tiles,
-        "correct_ids": answers,
-        "_pair_category": pair_cat,
     }
 
 
 def build_grid_challenge(secret: str, nonce: str,
                          used_categories: List[str],
                          attempt_index: int = 1) -> Dict[str, Any]:
-    """Build a random relational challenge. Rotates between task types."""
-    task_type = random.choice(TASK_TYPES)
-
-    if task_type == "odd_one_out":
-        ch = _build_odd_one_out(secret, nonce, used_categories)
-    elif task_type == "two_outliers":
-        ch = _build_two_outliers(secret, nonce, used_categories)
-    else:
-        ch = _build_matching_pair(secret, nonce, used_categories)
-
+    """Build a 'select not containing' challenge."""
+    ch = _build_select_not_containing(secret, nonce, used_categories)
     ch["attempt_index"] = attempt_index
     return ch
 
@@ -848,11 +723,9 @@ def next_challenge(secret: str, state: Dict[str, Any]) -> Dict[str, Any]:
         attempt_index = fail_count + 1
         ch = build_grid_challenge(secret, state["nonce"], state["used_categories"],
                                   attempt_index=attempt_index)
-        # Track used groups/categories to avoid repeats
-        if ch.get("_main_group"):
-            state["used_categories"].append(ch["_main_group"])
-        if ch.get("_pair_category"):
-            state["used_categories"].append(ch["_pair_category"])
+        # Track used categories to avoid repeats
+        if ch.get("_category"):
+            state["used_categories"].append(ch["_category"])
         state["kind"] = "grid"
         state["current"] = ch
         state["updated_at"] = _now()

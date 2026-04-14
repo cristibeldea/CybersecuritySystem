@@ -12,6 +12,9 @@ services:
       REDIS_PORT: "6379"
       CAPTCHA_SECRET: "change-this-to-a-random-long-string"
       CAPTCHA_TTL_SECONDS: "3600"
+      # Admin dashboard
+      ADMIN_USER: "admin"
+      ADMIN_PASSWORD: "admin"
       # Rule knobs (optional)
       BAN_SECONDS: "600"
     ports:
