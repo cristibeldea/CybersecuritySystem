@@ -151,10 +151,87 @@ def get_ban_mode() -> str:
     return mode if mode in ("ip", "ip_fingerprint") else "ip"
 
 
-def ban_ip_with_history(ip: str, duration: int, reason: str = ""):
-    """Ban an IP and log the event for admin history."""
-    ban_ip(r, ip, duration, reason=reason)
-    log_ban_event(ip, reason, duration)
+# ----------------------------------------------------------------------
+# Progressive ban escalation
+# ----------------------------------------------------------------------
+# Each new ban for the same IP increases the duration. The offense
+# counter lives in Redis under key BAN_OFFENSE_PREFIX:<ip> with a TTL
+# of OFFENSE_WINDOW_SECONDS (default 7 days). If the IP stays clean
+# for that window, the counter resets and next ban starts at level 1.
+
+BAN_OFFENSE_PREFIX     = "ban:offense_count:"
+OFFENSE_WINDOW_SECONDS = 7 * 24 * 3600   # 7 days
+
+# Ladder of durations indexed by offense count (1-based).
+# Level 5+ falls back to BAN_LADDER[-1].
+BAN_LADDER = [
+    60,        # level 1: 1 min
+    300,       # level 2: 5 min
+    1800,      # level 3: 30 min
+    86400,     # level 4: 24 h
+    604800,    # level 5+: 7 days
+]
+
+
+def progressive_ban_duration(offense_count: int) -> int:
+    """Return ban duration in seconds for a given offense count (1-based)."""
+    if offense_count <= 0:
+        return BAN_LADDER[0]
+    if offense_count > len(BAN_LADDER):
+        return BAN_LADDER[-1]
+    return BAN_LADDER[offense_count - 1]
+
+
+def get_offense_count(ip: str) -> int:
+    """Return the current offense count for an IP (0 if never banned)."""
+    try:
+        val = r.get(f"{BAN_OFFENSE_PREFIX}{ip}")
+        return int(val) if val else 0
+    except Exception:
+        return 0
+
+
+def increment_offense_count(ip: str) -> int:
+    """Increment the offense counter for an IP, reset TTL, return new value."""
+    key = f"{BAN_OFFENSE_PREFIX}{ip}"
+    try:
+        new_val = r.incr(key)
+        r.expire(key, OFFENSE_WINDOW_SECONDS)
+        return int(new_val)
+    except Exception:
+        return 1
+
+
+def reset_offense_count(ip: str) -> None:
+    """Clear the offense counter for an IP (used by admin reset)."""
+    try:
+        r.delete(f"{BAN_OFFENSE_PREFIX}{ip}")
+    except Exception:
+        pass
+
+
+def ban_ip_with_history(ip: str, duration: int = 0, reason: str = "",
+                        progressive: bool = True) -> int:
+    """Ban an IP and log the event for admin history.
+
+    When progressive=True (default), the duration is computed from the
+    offense ladder using the per-IP counter, ignoring the passed duration.
+    Pass progressive=False to apply a fixed duration (used by manual
+    admin bans).
+
+    Returns the duration that was actually applied.
+    """
+    if progressive:
+        offense = increment_offense_count(ip)
+        applied = progressive_ban_duration(offense)
+        full_reason = f"{reason} | level={offense} duration={applied}s"
+    else:
+        applied = max(1, int(duration))
+        full_reason = reason
+
+    ban_ip(r, ip, applied, reason=full_reason)
+    log_ban_event(ip, full_reason, applied)
+    return applied
 
 def get_client_ip():
     xff = request.headers.get("X-Forwarded-For", "")
@@ -499,6 +576,14 @@ def captcha_page():
             state["current"] = {"kind": "checkbox", "attempt_index": 0}
             banned = False
             ban_until = 0
+        else:
+            # In-memory says banned AND Redis confirms. Trust Redis TTL —
+            # the in-memory value may be stale (e.g. hardcoded 60s from
+            # guard.py while the actual Redis ban is from the ladder).
+            ttl = r.ttl(f"{BANNED_PREFIX}{ip}")
+            if ttl and ttl > 0:
+                ban_until = _now() + ttl
+                state["ban_until"] = ban_until
 
     if not banned:
         ip = get_client_ip()
@@ -572,6 +657,12 @@ def captcha_verify():
             state["current"] = {"kind": "checkbox", "attempt_index": 0}
             banned = False
             ban_until = 0
+        else:
+            # Trust Redis TTL over in-memory ban_until.
+            ttl = r.ttl(f"{BANNED_PREFIX}{ip}")
+            if ttl and ttl > 0:
+                ban_until = _now() + ttl
+                state["ban_until"] = ban_until
 
     # Also check Redis ban (survives restarts / cookie clears)
     if not banned:
@@ -584,7 +675,10 @@ def captcha_verify():
 
     if banned:
         ip = get_client_ip()
-        ban_ip_with_history(ip, BAN_SECONDS_CAPTCHA, reason=f"captcha:fail_count>={state.get('fail_count', 0)}")
+        applied = ban_ip_with_history(ip, BAN_SECONDS_CAPTCHA,
+                                      reason=f"captcha:fail_count>={state.get('fail_count', 0)}")
+        ban_until = _now() + applied
+        state["ban_until"] = ban_until
         return jsonify({
             "action": "banned",
             "ban_until": ban_until
@@ -597,17 +691,29 @@ def captcha_verify():
     # -----------------
     if current_kind == "checkbox":
 
-        ok, _ = verify_checkbox(CAPTCHA_SECRET, state, payload)
+        ok, msg = verify_checkbox(CAPTCHA_SECRET, state, payload)
 
-        # verify_checkbox already calls next_challenge or record_failure_and_advance
         banned, ban_until = captcha_is_banned(state)
         if banned:
             ip = get_client_ip()
-            ban_ip_with_history(ip, BAN_SECONDS_CAPTCHA, reason=f"captcha:checkbox_fail_count>={state.get('fail_count', 0)}")
+            applied = ban_ip_with_history(
+                ip, BAN_SECONDS_CAPTCHA,
+                reason=f"captcha:checkbox_fail_count>={state.get('checkbox_fail_count', 0)}")
+            ban_until = _now() + applied
+            state["ban_until"] = ban_until
             return jsonify({
                 "action": "banned",
                 "ban_until": ban_until
             }), 429
+
+        if not ok:
+            # Behavioral failure — stay on checkbox, ask user to retry
+            return jsonify({
+                "action": "retry",
+                "message": msg.get("message", "Încearcați din nou."),
+                "nonce": state["nonce"],
+                "state": safe_state(state)
+            })
 
         return jsonify({
             "action": "next",
@@ -656,7 +762,11 @@ def captcha_verify():
 
         if banned:
             ip = get_client_ip()
-            ban_ip_with_history(ip, BAN_SECONDS_CAPTCHA, reason=f"captcha:fail_count>={state.get('fail_count', 0)}")
+            applied = ban_ip_with_history(
+                ip, BAN_SECONDS_CAPTCHA,
+                reason=f"captcha:fail_count>={state.get('fail_count', 0)}")
+            ban_until = _now() + applied
+            state["ban_until"] = ban_until
             return jsonify({
                 "action": "banned",
                 "ban_until": ban_until
@@ -837,9 +947,55 @@ def admin_manual_ban():
     reason = data.get("reason", "manual:admin")
     if not ip:
         return jsonify({"error": "ip required"}), 400
-    ban_ip_with_history(ip, duration, reason=reason)
+    ban_ip_with_history(ip, duration, reason=reason, progressive=False)
     log.info("ADMIN BAN ip=%s duration=%d reason=%s", ip, duration, reason)
     return jsonify({"status": "ok"})
+
+
+@app.post("/admin/api/unban-keep-counter")
+@_require_admin
+def admin_unban_keep_counter():
+    """Clear active ban but preserve offense counter — used by escalation
+    demo to advance through ban levels without waiting for natural expiry."""
+    data = request.get_json(silent=True) or {}
+    ip = data.get("ip", "").strip()
+    if not ip:
+        return jsonify({"error": "ip required"}), 400
+    r.delete(f"{BANNED_PREFIX}{ip}")
+    log.info("ADMIN UNBAN(keep-counter) ip=%s", ip)
+    log_ban_event(ip, "manual:unban:demo-skip", 0)
+    return jsonify({"status": "ok",
+                    "offense_count": get_offense_count(ip)})
+
+
+@app.post("/admin/api/reset-offense")
+@_require_admin
+def admin_reset_offense():
+    """Reset the offense counter for an IP (cleanup between demo runs)."""
+    data = request.get_json(silent=True) or {}
+    ip = data.get("ip", "").strip()
+    if not ip:
+        return jsonify({"error": "ip required"}), 400
+    reset_offense_count(ip)
+    r.delete(f"{BANNED_PREFIX}{ip}")
+    log.info("ADMIN RESET OFFENSE ip=%s", ip)
+    return jsonify({"status": "ok"})
+
+
+@app.get("/admin/api/offense-count")
+@_require_admin
+def admin_offense_count():
+    ip = (request.args.get("ip") or "").strip()
+    if not ip:
+        return jsonify({"error": "ip required"}), 400
+    count = get_offense_count(ip)
+    duration_next = progressive_ban_duration(count + 1)
+    return jsonify({
+        "ip": ip,
+        "offense_count": count,
+        "next_ban_duration": duration_next,
+        "ladder": BAN_LADDER,
+    })
 
 
 @app.get("/admin/api/ban-history")

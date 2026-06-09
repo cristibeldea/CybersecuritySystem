@@ -784,6 +784,15 @@
             return;
           }
 
+          if (data.action === "retry") {
+            setStatus(data.message || "Încearcați din nou.", "bad");
+            holdDone = false;
+            holdBtn.classList.remove("done");
+            holdLabel.textContent = "Hold to verify";
+            holdFill.style.width = "0%";
+            return;
+          }
+
           setStatus(data.message || "Verification failed.", "bad");
           holdDone = false;
           holdBtn.classList.remove("done");

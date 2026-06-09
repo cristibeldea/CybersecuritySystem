@@ -19,7 +19,8 @@ GRID_DIR = os.path.join(CAPTCHA_PHOTOS_DIR, "grid")
 
 PASS_TTL_SECONDS = 20 * 60
 BAN_SECONDS = 60   # 1 minute
-MAX_FAILS_TOTAL = 5
+MAX_CHECKBOX_FAILS = 3   # behavioral failures on hold-to-verify → ban
+MAX_FAILS_TOTAL    = 5   # wrong answers on grid CAPTCHA → ban
 
 # in-memory store; replace with Redis/database in production
 CAPTCHA_STATE: Dict[str, Dict[str, Any]] = {}
@@ -151,8 +152,21 @@ def extract_features(payload: Dict[str, Any]) -> Dict[str, Any]:
                     sin_angle = min(1.0, cross / denom)
                     curvature_angles.append(sin_angle)
 
-                # Overshoot + correction: velocity spike followed by reversal
-                if dot < 0 and len(velocities) >= 2 and velocities[-2] > 0:
+                # Overshoot + correction — must satisfy ALL conditions:
+                #  (1) Direction reversal (dot < 0)
+                #  (2) Both segments have non-trivial displacement (>= 4 px)
+                #     This filters out micro-zigzags from jitter, which would
+                #     otherwise inflate the overshoot count artificially.
+                #  (3) Speed drops significantly after the reversal
+                #  (4) Occurs in the final 30% of the trajectory (target-approach zone)
+                #     Real overshoots happen near the click destination, not
+                #     scattered randomly across the path.
+                if (dot < 0
+                        and prev_mag >= 4.0
+                        and curr_mag >= 4.0
+                        and len(velocities) >= 2
+                        and velocities[-2] > 0
+                        and i >= int(0.7 * n_points)):
                     speed_ratio = velocities[-1] / max(0.001, velocities[-2])
                     if speed_ratio < 0.5:
                         overshoot_corrections += 1
@@ -201,6 +215,37 @@ def extract_features(payload: Dict[str, Any]) -> Dict[str, Any]:
     # === MEDIUM VALUE: Distance/straight-line ratio (detour ratio) ===
     detour_ratio = (total_path_dist / max(1.0, straight_line_dist)) if straight_line_dist > 1.0 else 0.0
 
+    # === HIGH VALUE: Velocity profile shape (Sigma-Lognormal proxy) ===
+    # Human motor movements follow a log-normal velocity profile: cursor
+    # accelerates to a peak in the middle of the trajectory, then decelerates.
+    # This is a kinematic signature of the motor cortex (Khan & Hou 2024).
+    # Bots — even with positional jitter — typically have uniform velocity.
+    #
+    # Two metrics:
+    #   - bell_ratio   : ratio of middle-third mean velocity to (first+last)/2
+    #                    Values > 1.3 indicate a bell-shaped profile (human)
+    #                    Values near 1.0 indicate uniform velocity (bot)
+    #   - velocity_skew: 3rd standardized moment of the velocity distribution
+    #                    Strong positive skew => log-normal-like (human)
+    #                    Near-zero skew       => symmetric (uniform-like, bot)
+    velocity_bell_ratio = 0.0
+    velocity_skew       = 0.0
+    n_vel = len(velocities)
+    if n_vel >= 15:
+        third = n_vel // 3
+        v_first  = sum(velocities[:third])             / max(1, third)
+        v_middle = sum(velocities[third:2*third])      / max(1, third)
+        v_last   = sum(velocities[2*third:])           / max(1, n_vel - 2*third)
+        edge_avg = (v_first + v_last) / 2.0
+        if edge_avg > 0.0001:
+            velocity_bell_ratio = v_middle / edge_avg
+        # 3rd standardized moment (skewness)
+        v_mean = sum(velocities) / n_vel
+        v_var  = sum((v - v_mean) ** 2 for v in velocities) / n_vel
+        if v_var > 1e-8:
+            v_sd = math.sqrt(v_var)
+            velocity_skew = sum((v - v_mean) ** 3 for v in velocities) / (n_vel * v_sd ** 3)
+
     # === Blur count (supporting signal) ===
     blur_count = 0
     if isinstance(focus, list):
@@ -211,6 +256,8 @@ def extract_features(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {
         # High value
         "velocity_std": round(velocity_std, 4),
+        "velocity_bell_ratio": round(velocity_bell_ratio, 3),
+        "velocity_skew": round(velocity_skew, 3),
         "velocity_mean": round(velocity_mean, 4),
         "curvature_index": round(curvature_index, 4),
         "click_interval_std": round(click_interval_std, 2),
@@ -246,6 +293,8 @@ def compute_behavior_risk(features: Dict[str, Any]) -> Tuple[int, Dict[str, Any]
     # --- unpack features ---
     vel_std      = float(features.get("velocity_std", 0.0))
     vel_mean     = float(features.get("velocity_mean", 0.0))
+    vel_bell     = float(features.get("velocity_bell_ratio", 0.0))
+    vel_skew     = float(features.get("velocity_skew", 0.0))
     curvature    = float(features.get("curvature_index", 0.0))
     ci_std       = float(features.get("click_interval_std", 0.0))
     ci_mean      = float(features.get("click_interval_mean", 0.0))
@@ -286,6 +335,33 @@ def compute_behavior_risk(features: Dict[str, Any]) -> Tuple[int, Dict[str, Any]
     else:
         risk += 12
         reasons["insufficient_movement_data"] = n_points
+
+    # 1b. Velocity profile shape — Sigma-Lognormal proxy
+    #     Humans have a bell-shaped velocity profile (accelerate, peak in the
+    #     middle, decelerate). Bots — even with positional jitter — have
+    #     uniform velocity profile, because they sample positions uniformly.
+    #     Reference: Khan & Hou (2024), Sigma-Lognormal kinematic model.
+    if n_points >= 20:
+        if vel_bell > 1.3:
+            risk -= 8
+            reasons["velocity_bell_curve"] = vel_bell
+        elif vel_bell > 1.1:
+            risk -= 4
+            reasons["velocity_moderate_bell"] = vel_bell
+        elif vel_bell < 1.02 and vel_bell > 0:
+            risk += 12
+            reasons["velocity_uniform_profile"] = vel_bell
+
+    # 1c. Velocity distribution skewness — log-normal signature check
+    #     Human motor velocities are right-skewed (log-normal). Bot velocities
+    #     are approximately symmetric (uniform/gaussian noise around mean).
+    if n_points >= 20 and vel_std > 0.001:
+        if vel_skew > 0.6:
+            risk -= 6
+            reasons["velocity_lognormal_skew"] = vel_skew
+        elif abs(vel_skew) < 0.15:
+            risk += 8
+            reasons["velocity_symmetric_distribution"] = vel_skew
 
     # 2. Per-tile hover time distribution
     #    Humans deliberate differently over each image; bots tend to
@@ -396,7 +472,11 @@ def compute_behavior_risk(features: Dict[str, Any]) -> Tuple[int, Dict[str, Any]
 def checkbox_behavior_ok(payload: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
     features = extract_features(payload)
     risk, reasons = compute_behavior_risk(features)
-    return risk < 78, {"features": features, "reasons": reasons}
+    # Threshold lowered from 78 to 50 after adding the Sigma-Lognormal
+    # velocity-profile signals (bell-curve ratio + skewness) and tightening
+    # the overshoot detector. Calibrated against synthetic trajectories at
+    # 5 sophistication levels. See demos/test_threshold_calibration.py.
+    return risk < 50, {"features": features, "reasons": reasons}
 
 
 def grid_behavior_ok(payload: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
@@ -404,7 +484,7 @@ def grid_behavior_ok(payload: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
     the user is actively clicking tiles and producing richer signals."""
     features = extract_features(payload)
     risk, reasons = compute_behavior_risk(features)
-    return risk < 85, {"features": features, "reasons": reasons}
+    return risk < 60, {"features": features, "reasons": reasons}
 
 
 # ----------------------------
@@ -670,7 +750,8 @@ def _empty_state(nonce: str) -> Dict[str, Any]:
     return {
         "nonce": nonce,
         "kind": "checkbox",
-        "fail_count": 0,
+        "checkbox_fail_count": 0,  # behavioral failures on hold-to-verify
+        "fail_count": 0,           # wrong answers on grid CAPTCHA
         "used_categories": [],
         "ban_until": 0,
         "created_at": _now(),
@@ -767,8 +848,17 @@ def verify_checkbox(secret: str, state: Dict[str, Any], payload: Dict[str, Any])
         next_challenge(secret, state)
         return True, {"message": "Proceed to the visual challenge."}
 
-    record_failure_and_advance(secret, state)
-    return False, {"message": "Behavioral check failed."}
+    # Behavioral failure — increment checkbox-specific counter.
+    # Do NOT advance to grid; stay on checkbox and ask user to retry.
+    state["checkbox_fail_count"] = int(state.get("checkbox_fail_count", 0)) + 1
+
+    if int(state["checkbox_fail_count"]) >= MAX_CHECKBOX_FAILS:
+        state["ban_until"] = _now() + BAN_SECONDS
+        state["kind"] = "banned"
+        state["current"] = {"kind": "banned", "attempt_index": state["checkbox_fail_count"]}
+        return False, {"message": "Acces blocat temporar.", "ban": True}
+
+    return False, {"message": "Încearcați din nou.", "retry": True}
 
 
 def verify_grid_answer(state: Dict[str, Any], payload: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:

@@ -13,13 +13,6 @@ Tests EVERY testable feature of the captcha system:
   - Honeypot decoy button traps          (bans IP — runs last)
   - 5-failure ban logic                   (bans IP — runs last)
 
-Run:
-    cd tests
-    pip install -r requirements-dev.txt
-    python -m playwright install chromium
-    python -m pytest captcha_tests/captcha_tests.py -v
-
-Requires the app running at http://localhost:8080 (docker compose up).
 """
 
 import asyncio
