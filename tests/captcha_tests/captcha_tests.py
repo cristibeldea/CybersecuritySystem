@@ -33,6 +33,16 @@ VERIFY_URL = f"{BASE}/captcha/verify"
 RESET_URL = f"{BASE}/captcha/reset"
 HOLD_DURATION_MS = 1500  # must match JS HOLD_DURATION_MS
 
+# The captcha template intentionally contains multiple elements with
+# id="holdBtn" — all but one are honeypot decoys sitting inside
+# .sr-only containers (offscreen, pointer-events:none) designed to
+# trap naive bots that call document.getElementById('holdBtn').
+# The application JS identifies the REAL button structurally:
+#     document.querySelector("#checkboxStage .field-wrap .hold-btn")
+# The test suite must use the same canonical selector so that mouse
+# interactions actually reach the live button and not a decoy.
+REAL_HOLD_BTN = "#checkboxStage .field-wrap .hold-btn"
+
 REDIS_HOST = "localhost"
 REDIS_PORT = 6379
 BANNED_PREFIX = "ban:"
@@ -115,7 +125,7 @@ async def human_like_movement(page, target_x, target_y, steps=80, duration_s=1.5
     await page.mouse.move(target_x, target_y)
 
 
-async def do_hold_button(page, movement_fn, btn_selector="#holdBtn"):
+async def do_hold_button(page, movement_fn, btn_selector=REAL_HOLD_BTN):
     """Execute the hold-to-verify flow with a given mouse movement function."""
     btn = await page.wait_for_selector(btn_selector, state="visible", timeout=5000)
     box = await btn.bounding_box()
@@ -247,9 +257,14 @@ class TestHoldButtonBehavior:
                 await reset_session(page)
                 await page.wait_for_timeout(300)
 
+                # NB: getElementById('holdBtn') would hit a honeypot decoy
+                # (the template intentionally exposes 7 such decoys). The
+                # application JS binds mousedown only on the real button at
+                # #checkboxStage .field-wrap .hold-btn — we must hit that one
+                # for the bot-detection pipeline to actually run server-side.
                 await page.evaluate("""
                     () => {
-                        const btn = document.getElementById("holdBtn");
+                        const btn = document.querySelector("#checkboxStage .field-wrap .hold-btn");
                         btn.dispatchEvent(new MouseEvent("mousedown", {bubbles: true}));
                     }
                 """)
@@ -276,7 +291,7 @@ class TestHoldButtonBehavior:
                 await reset_session(page)
                 await page.wait_for_timeout(300)
 
-                btn = await page.wait_for_selector("#holdBtn", state="visible")
+                btn = await page.wait_for_selector(REAL_HOLD_BTN, state="visible")
                 box = await btn.bounding_box()
                 tx = box["x"] + box["width"] / 2
                 ty = box["y"] + box["height"] / 2
@@ -302,7 +317,7 @@ class TestHoldButtonBehavior:
                 await reset_session(page)
                 await page.wait_for_timeout(300)
 
-                btn = await page.wait_for_selector("#holdBtn", state="visible")
+                btn = await page.wait_for_selector(REAL_HOLD_BTN, state="visible")
                 box = await btn.bounding_box()
                 tx = box["x"] + box["width"] / 2
                 ty = box["y"] + box["height"] / 2
@@ -905,7 +920,7 @@ class TestHoneypot:
                 """)
                 await page.wait_for_timeout(200)
 
-                btn = await page.wait_for_selector("#holdBtn", state="visible")
+                btn = await page.wait_for_selector(REAL_HOLD_BTN, state="visible")
                 box = await btn.bounding_box()
                 tx = box["x"] + box["width"] / 2
                 ty = box["y"] + box["height"] / 2
