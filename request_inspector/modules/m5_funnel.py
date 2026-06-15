@@ -1,30 +1,4 @@
-"""
-Module 5 — Behavioural funnel timing.
-
-Tracks the timing between sequential steps in the user funnel:
-
-  captcha page load → captcha verify → main page access
-
-Each request path is classified as ``captcha_load``, ``captcha_action``
-or ``page_access``.  Funnel events are then grouped into sessions
-delimited by ``FUNNEL_SESSION_GAP`` seconds of silence.
-
-Three checks are applied:
-
-  1. Per-session — page-to-first-action time below
-     ``FUNNEL_MIN_PAGE_TO_ACTION`` (inhumanly fast).  Requires at least
-     2 such sessions before firing.
-
-  2. Cross-session — funnel completion times have near-zero variance
-     (CV < ``FUNNEL_CV_THRESHOLD``) across multiple sessions: identical
-     replay of a scripted flow.
-
-  3. Cross-session — step-by-step timing signatures match across
-     sessions with max difference < 500 ms on every interval: same
-     script run with the same timing parameters.
-
-Any of the three fires a ban of ``FUNNEL_BAN_SECONDS``.
-"""
+"""Modulul 5: timpii dintre pasii palniei comportamentale per IP."""
 from typing import List, Optional
 
 from ban import ban_ip
@@ -38,8 +12,6 @@ from config import (
 )
 from state import _now, _std_dev, ip_history
 
-
-# Funnel steps in expected order.  Each request is mapped to a step name.
 _FUNNEL_STEPS = {
     "/captcha":        "captcha_load",
     "/captcha/verify": "captcha_action",
@@ -47,19 +19,16 @@ _FUNNEL_STEPS = {
     "/":               "page_access",
 }
 
-
 def _classify_funnel_step(path: str) -> Optional[str]:
-    """Map a request path to a funnel step name."""
+    """Mapeaza un path al cererii la un pas al palniei."""
     if path in _FUNNEL_STEPS:
         return _FUNNEL_STEPS[path]
     if path.startswith("/article/"):
         return "page_access"
     return None
 
-
 def _extract_funnel_sessions(entries: List[dict], gap: int) -> List[List[dict]]:
-    """Split a sorted list of entries into sessions based on time gaps.
-    A gap of `gap` seconds or more starts a new session."""
+    """Imparte lista sortata de intrari in sesiuni pe baza pauzelor temporale."""
     if not entries:
         return []
 
@@ -71,9 +40,8 @@ def _extract_funnel_sessions(entries: List[dict], gap: int) -> List[List[dict]]:
             sessions[-1].append(e)
     return sessions
 
-
 def check_funnel_timing(ip: str) -> bool:
-    """Returns True if IP shows bot-like funnel timing patterns."""
+    """Returneaza True daca IP-ul arata tipare de timing al palniei de tip bot."""
     hist = ip_history.get(ip, [])
     cutoff = _now() - FUNNEL_WINDOW
     recent = [e for e in hist if e["ts"] >= cutoff]
@@ -81,7 +49,6 @@ def check_funnel_timing(ip: str) -> bool:
     if len(recent) < 4:
         return False
 
-    # Tag each entry with its funnel step
     funnel_entries = []
     for e in recent:
         step = _classify_funnel_step(e["path"])
@@ -94,7 +61,6 @@ def check_funnel_timing(ip: str) -> bool:
     sessions = _extract_funnel_sessions(funnel_entries, FUNNEL_SESSION_GAP)
     reasons = []
 
-    # ---- Check 1: Per-session — page load to first action too fast ----
     fast_sessions = 0
     for session in sessions:
         steps = [e["step"] for e in session]
@@ -112,11 +78,9 @@ def check_funnel_timing(ip: str) -> bool:
                 if delta < FUNNEL_MIN_PAGE_TO_ACTION:
                     fast_sessions += 1
 
-    # If multiple sessions show inhuman speed → ban
     if fast_sessions >= 2:
         reasons.append(f"fast_page_to_action x{fast_sessions} (< {FUNNEL_MIN_PAGE_TO_ACTION}s)")
 
-    # ---- Check 2: Cross-session — funnel duration variance ----
     session_durations = []
     for session in sessions:
         if len(session) >= 2:
@@ -135,9 +99,6 @@ def check_funnel_timing(ip: str) -> bool:
                     f"(n={len(session_durations)}, mean={mean:.1f}s, std={std:.1f}s)"
                 )
 
-    # ---- Check 3: Cross-session — step timing fingerprint ----
-    # For each session, build a tuple of inter-step intervals.
-    # If all sessions produce near-identical interval tuples → scripted replay.
     step_timing_signatures = []
     for session in sessions:
         if len(session) >= 3:
@@ -147,7 +108,6 @@ def check_funnel_timing(ip: str) -> bool:
             step_timing_signatures.append(tuple(intervals))
 
     if len(step_timing_signatures) >= FUNNEL_MIN_SESSIONS:
-        # Compare all pairs: what fraction are nearly identical?
         identical_pairs = 0
         total_pairs = 0
         for i in range(len(step_timing_signatures)):
@@ -156,7 +116,7 @@ def check_funnel_timing(ip: str) -> bool:
                 a, b = step_timing_signatures[i], step_timing_signatures[j]
                 if len(a) == len(b) and len(a) >= 2:
                     max_diff = max(abs(x - y) for x, y in zip(a, b))
-                    if max_diff < 0.5:  # within 500ms across all steps
+                    if max_diff < 0.5:
                         identical_pairs += 1
 
         if total_pairs > 0 and identical_pairs / total_pairs >= 0.80:

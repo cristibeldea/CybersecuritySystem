@@ -1,20 +1,4 @@
-"""
-DEMO 2 — Ban progresiv escaladat (varianta rapida)
-
-Pentru fiecare nivel:
-  - 3 esecuri comportamentale instantanee (fara animatie cursor)
-  - se confirma prin admin API ca s-a aplicat durata corecta din ladder
-  - bypass automat al ban-ului, contorul ramane
-
-Ladder:
-    abatere 1 -> 60s     (1 min)
-    abatere 2 -> 300s    (5 min)
-    abatere 3 -> 1800s   (30 min)
-    abatere 4 -> 86400s  (24 h)
-    abatere 5+ -> 604800s (7 zile)
-
-La final reincarca pagina o singura data sa se vada TTL-ul ultimului ban.
-"""
+"""Demo 2: forteaza 5 infractiuni consecutive pentru a arata escaladarea pe scara BAN_LADDER."""
 import asyncio, sys, io, os, json, base64
 import urllib.request, urllib.parse, urllib.error
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
@@ -28,9 +12,8 @@ FAKE_IP    = "10.99.0.42"
 
 NUM_LEVELS_TO_DEMO = 5
 ATTEMPTS_PER_BAN   = 3
-FINAL_VIEW_SECONDS = 8   # cat sta deschis ban-ul final pe ecran
+FINAL_VIEW_SECONDS = 8
 
-# -- colors --
 R = "\033[91m"; G = "\033[92m"; Y = "\033[93m"; B = "\033[96m"
 W = "\033[97m"; M = "\033[95m"; BD = "\033[1m"; RS = "\033[0m"
 def hdr(t):  print(f"\n{R}{BD}{'='*64}{RS}\n{R}{BD}  {t}{RS}\n{R}{BD}{'='*64}{RS}")
@@ -40,8 +23,6 @@ def err(t):  print(f"{R}{BD}[x]{RS} {t}")
 def info(t): print(f"{B}{BD}[~]{RS} {t}")
 def step(t): print(f"{W}{BD}[->]{RS} {t}")
 
-
-# ---------- admin helpers ----------
 def _basic_auth() -> str:
     raw = f"{ADMIN_USER}:{ADMIN_PASS}".encode("utf-8")
     return "Basic " + base64.b64encode(raw).decode("ascii")
@@ -74,8 +55,6 @@ def unban_keep_counter(ip): return admin_post("/admin/api/unban-keep-counter", {
 def reset_offense(ip):      return admin_post("/admin/api/reset-offense", {"ip": ip})
 def offense_count(ip):      return admin_get("/admin/api/offense-count", {"ip": ip})
 
-
-# ---------- robotic injection (no animation, no cursor SVG) ----------
 INJECT_POINTS_JS = """
 ([startX, endX, y, nSteps, intervalMs]) => {
     if (typeof points !== 'undefined') points.length = 0;
@@ -110,7 +89,7 @@ RESET_BUTTON_JS = """
 """
 
 async def fast_robotic_attempt(page):
-    """One robotic Hold-to-Verify attempt, as fast as possible."""
+    """O incercare robotica de hold-to-verify, cat de rapida posibil."""
     btn = await page.query_selector("#checkboxStage .hold-btn")
     if not btn:
         return False
@@ -120,15 +99,12 @@ async def fast_robotic_attempt(page):
     tx = box["x"] + box["width"] / 2
     ty = box["y"] + box["height"] / 2
 
-    # Inject 120 perfectly linear points directly (no real mouse move)
     await page.evaluate(INJECT_POINTS_JS, [tx - 350, tx, ty, 120, 15])
-    # Move mouse once and trigger hold
     await page.mouse.move(tx, ty, steps=1)
     await page.mouse.down()
-    await asyncio.sleep(1.15)   # required by the hold-to-verify duration
+    await asyncio.sleep(1.15)
     await page.mouse.up()
-    await asyncio.sleep(1.2)    # let server process + state update
-
+    await asyncio.sleep(1.2)
 
 def fmt_duration(s: int) -> str:
     if s < 60: return f"{s}s"
@@ -136,13 +112,11 @@ def fmt_duration(s: int) -> str:
     if s < 86400: return f"{s//3600}h{(s%3600)//60:02d}m"
     return f"{s//86400}z{(s%86400)//3600:02d}h"
 
-
 async def main():
     hdr("DEMO 2 — Ban Progresiv Escaladat (varianta rapida)")
     info(f"IP fals: {BD}{FAKE_IP}{RS}")
     info(f"Niveluri escaladate: {NUM_LEVELS_TO_DEMO}\n")
 
-    # Sanity check: confirm new endpoints exist
     pre = offense_count(FAKE_IP)
     if "error" in pre:
         err(f"Endpoint nou indisponibil → containerul ruleaza cod vechi!")
@@ -154,7 +128,6 @@ async def main():
         return
     ok(f"Endpoint nou activ. Ladder: {pre['ladder']}\n")
 
-    # Cleanup
     step("Reset contor abateri...")
     reset_offense(FAKE_IP)
     ok("Contor resetat.\n")
@@ -175,7 +148,6 @@ async def main():
             sep()
             print(f"{M}{BD}  NIVELUL {level}/{NUM_LEVELS_TO_DEMO}{RS}")
 
-            # Trigger 3 robotic failures (= 1 ban)
             banned = False
             for attempt in range(1, ATTEMPTS_PER_BAN + 1):
                 await fast_robotic_attempt(page)
@@ -185,7 +157,6 @@ async def main():
                 await page.evaluate(RESET_BUTTON_JS)
                 await asyncio.sleep(0.3)
 
-            # Read what actually got applied
             cnt = offense_count(FAKE_IP)
             current_level = cnt.get("offense_count", 0)
             expected_dur = [60, 300, 1800, 86400, 604800][min(current_level - 1, 4)] if current_level > 0 else 0
@@ -199,25 +170,21 @@ async def main():
                 err(f"Asteptam nivel {level}, primit {current_level}. Ban-ul nu s-a escaladat corect.")
                 break
 
-            # Bypass (last level: skip bypass so we can see the ban screen)
             if level < NUM_LEVELS_TO_DEMO:
                 unban_keep_counter(FAKE_IP)
                 await asyncio.sleep(0.3)
-                # Reload page to clear ban banner before next round
                 await page.goto(f"{BASE_URL}/captcha", wait_until="networkidle")
                 await asyncio.sleep(0.3)
 
         sep()
         ok(f"Demo incheiat. Escaladare: {' -> '.join(fmt_duration(d) for d in applied_durations)}")
 
-        # Show the final ban page with countdown
         final = offense_count(FAKE_IP)
         info(f"Contor final: {BD}{final.get('offense_count','?')}{RS} abateri")
         info(f"Reincarc pagina ca sa se vada TTL-ul ultimului ban...")
         await page.reload(wait_until="networkidle")
         await asyncio.sleep(FINAL_VIEW_SECONDS)
         await browser.close()
-
 
 if __name__ == "__main__":
     try:

@@ -76,7 +76,6 @@
     <div class="tab" data-tab="settings">Settings</div>
   </div>
 
-  <!-- ACTIVE BANS -->
   <div class="tab-panel active" id="tab-bans">
     <div class="card full">
       <div class="refresh-bar">
@@ -95,7 +94,6 @@
     </div>
   </div>
 
-  <!-- NEAR MISSES -->
   <div class="tab-panel" id="tab-nearmiss">
     <div class="card full">
       <div class="refresh-bar">
@@ -110,7 +108,6 @@
     </div>
   </div>
 
-  <!-- BAN HISTORY -->
   <div class="tab-panel" id="tab-history">
     <div class="card full">
       <div class="refresh-bar">
@@ -124,7 +121,6 @@
     </div>
   </div>
 
-  <!-- REQUEST LOGS -->
   <div class="tab-panel" id="tab-logs">
     <div class="card full">
       <div class="refresh-bar">
@@ -139,7 +135,6 @@
     </div>
   </div>
 
-  <!-- THRESHOLDS -->
   <div class="tab-panel" id="tab-thresholds">
     <div class="grid">
       <div class="card">
@@ -275,7 +270,6 @@
     <button class="btn-success" onclick="saveThresholds()" style="margin-top:8px;">Save All Thresholds</button>
   </div>
 
-  <!-- SETTINGS -->
   <div class="tab-panel" id="tab-settings">
     <div class="grid">
       <div class="card">
@@ -306,7 +300,6 @@
   <script>
     const API = "/admin/api";
 
-    // --- Tabs ---
     document.querySelectorAll(".tab").forEach(tab => {
       tab.addEventListener("click", () => {
         document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
@@ -342,7 +335,6 @@
       return d.innerHTML;
     }
 
-    // --- Active Bans ---
     async function loadBans() {
       const res = await fetch(API + "/bans");
       const data = await res.json();
@@ -386,7 +378,6 @@
       loadBans();
     }
 
-    // --- Near Misses ---
     async function loadNearMisses() {
       const res = await fetch(API + "/near-misses");
       const data = await res.json();
@@ -408,7 +399,6 @@
       ).join("");
     }
 
-    // --- Ban History ---
     async function loadBanHistory() {
       const res = await fetch(API + "/ban-history");
       const data = await res.json();
@@ -427,7 +417,6 @@
       ).join("");
     }
 
-    // --- Request Logs ---
     async function loadLogs() {
       const res = await fetch(API + "/logs");
       const data = await res.json();
@@ -449,7 +438,6 @@
       ).join("");
     }
 
-    // --- Thresholds ---
     async function loadThresholds() {
       const res = await fetch(API + "/thresholds");
       const data = await res.json();
@@ -483,7 +471,6 @@
       toast("Thresholds saved");
     }
 
-    // --- Settings ---
     async function loadSettings() {
       const res = await fetch(API + "/settings");
       const data = await res.json();
@@ -514,7 +501,6 @@
       toast("Password changed");
     }
 
-    // --- Init ---
     async function init() {
       await Promise.all([loadBans(), loadNearMisses(), loadBanHistory(), loadLogs(), loadThresholds(), loadSettings()]);
     }

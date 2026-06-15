@@ -1,16 +1,4 @@
-"""
-Backward-compatibility shim for the pre-refactor ``captcha.guard`` module.
-
-The original ~950-line ``guard.py`` was split into single-responsibility
-submodules (see ``captcha/__init__.py`` for the full mapping). All
-public names previously importable as ``from captcha.guard import X``
-are re-exported here so existing call sites — including the demo
-scripts and the legacy test suite — keep working unchanged.
-
-New code should import directly from the focused submodules
-(``captcha.behavior_features``, ``captcha.token_pass``, etc.) or from
-the top-level ``captcha`` package.
-"""
+"""Shim de compatibilitate cu vechiul modul captcha.guard inainte de refactor."""
 from .constants import (  # noqa: F401
     BAN_SECONDS,
     BASE_DIR,

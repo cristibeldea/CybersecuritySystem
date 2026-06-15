@@ -1,12 +1,4 @@
-"""
-Command-line driver: walk the originals directory tree, distort every
-image with the 11-stage pipeline and write the output to the grid tree
-preserving the same hierarchy.
-
-  Usage:
-      python -m captcha.distort                 # process all
-      python -m captcha.distort --category cats # process one category
-"""
+"""CLI: parcurge originalele, aplica pipeline-ul de distorsiune si scrie iesirile in grila."""
 import argparse
 import os
 import sys
@@ -16,9 +8,8 @@ from PIL import Image
 from .helpers import GRID_DIR, IMAGE_EXTENSIONS, ORIGINALS_DIR
 from .pipeline import distort_image
 
-
 def _distort_directory(src_dir: str, dst_dir: str) -> int:
-    """Distort all images in src_dir, saving to dst_dir. Returns count."""
+    """Distorsioneaza toate imaginile din src_dir si salveaza in dst_dir."""
     os.makedirs(dst_dir, exist_ok=True)
     files = sorted(
         f for f in os.listdir(src_dir)
@@ -38,7 +29,6 @@ def _distort_directory(src_dir: str, dst_dir: str) -> int:
             print(f"    SKIP {fname}: {e}")
     return count
 
-
 def process_all(category_filter: str = None):
     if not os.path.isdir(ORIGINALS_DIR):
         print(f"ERROR: originals directory not found: {ORIGINALS_DIR}")
@@ -48,7 +38,6 @@ def process_all(category_filter: str = None):
 
     total = 0
 
-    # Process top-level categories (e.g. cats, cars, abstract)
     categories = sorted(
         d for d in os.listdir(ORIGINALS_DIR)
         if os.path.isdir(os.path.join(ORIGINALS_DIR, d)) and d != "questions"
@@ -70,7 +59,6 @@ def process_all(category_filter: str = None):
         print(f"  [{cat}] {len(files)} images ...")
         total += _distort_directory(src_dir, dst_dir)
 
-        # Process fake subfolder if it exists
         fake_src = os.path.join(src_dir, "fake")
         fake_dst = os.path.join(dst_dir, "fake")
         if os.path.isdir(fake_src):
@@ -82,14 +70,12 @@ def process_all(category_filter: str = None):
 
     print(f"\nDone. {total} images distorted into {GRID_DIR}")
 
-
 def main():
     parser = argparse.ArgumentParser(description="Distort CAPTCHA images")
     parser.add_argument("--category", type=str, default=None,
                         help="Process only this category folder")
     args = parser.parse_args()
     process_all(category_filter=args.category)
-
 
 if __name__ == "__main__":
     main()

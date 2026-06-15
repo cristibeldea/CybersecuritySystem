@@ -1,20 +1,4 @@
-"""
-Module 2 — Frequency regularity.
-
-Computes inter-request intervals for an IP within ``FREQ_WINDOW`` and
-applies two complementary checks:
-
-  1. Coefficient of variation (CV = std / mean) of the intervals.
-     Humans produce CVs typically between 0.4 and 1.5; bots driven by
-     ``time.sleep(constant)`` produce CVs near zero.
-
-  2. Integer-multiple detection (sleep-loop signature).  If at least
-     80% of the intervals are integer multiples of the smallest one
-     (within an 8% tolerance), the script is using a parameterised
-     ``sleep(random.choice([B, 2B, 3B, ...]))`` loop.
-
-Either check fires a ban of ``FREQ_BAN_SECONDS``.
-"""
+"""Modulul 2: regularitatea cadentei intre cereri (coeficient de variatie)."""
 from typing import List, Optional
 
 from ban import ban_ip
@@ -26,23 +10,19 @@ from config import (
 )
 from state import _now, _std_dev, ip_history
 
-
 def _compute_intervals(timestamps: List[float]) -> List[float]:
-    """Return sorted inter-request intervals in milliseconds."""
+    """Returneaza intervalele intre cereri sortate, in milisecunde."""
     if len(timestamps) < 2:
         return []
     ts_sorted = sorted(timestamps)
     return [round((ts_sorted[i] - ts_sorted[i - 1]) * 1000, 1)
             for i in range(1, len(ts_sorted))]
 
-
 def _detect_base_multiple(intervals: List[float], tolerance_pct: float = 0.08) -> Optional[float]:
-    """Check if all intervals are integer multiples of a base unit.
-    Returns the base unit if detected, else None."""
+    """Verifica daca toate intervalele sunt multipli intregi ai unei unitati de baza."""
     if not intervals:
         return None
-    # Candidate base = smallest non-zero interval
-    positives = [iv for iv in intervals if iv > 50]  # ignore sub-50ms noise
+    positives = [iv for iv in intervals if iv > 50]
     if len(positives) < 2:
         return None
     base = min(positives)
@@ -59,14 +39,12 @@ def _detect_base_multiple(intervals: List[float], tolerance_pct: float = 0.08) -
         if deviation <= tolerance_pct:
             matches += 1
 
-    # If ≥80% of intervals are integer multiples of the base
     if matches / len(positives) >= 0.80:
         return base
     return None
 
-
 def check_frequency_regularity(ip: str) -> bool:
-    """Returns True if IP shows bot-like interval regularity."""
+    """Returneaza True daca IP-ul are regularitate de cadenta de tip bot."""
     hist = ip_history.get(ip, [])
     cutoff = _now() - FREQ_WINDOW
     timestamps = [e["ts"] for e in hist if e["ts"] >= cutoff]
@@ -84,15 +62,13 @@ def check_frequency_regularity(ip: str) -> bool:
     if mean <= 0:
         return False
 
-    cv = std / mean  # coefficient of variation
+    cv = std / mean
 
     reasons = []
 
-    # Check 1: CV below threshold — metronomic requests
     if cv < FREQ_CV_THRESHOLD:
         reasons.append(f"cv={cv:.4f}<{FREQ_CV_THRESHOLD}")
 
-    # Check 2: Integer-multiple pattern (sleep loop)
     base = _detect_base_multiple(intervals)
     if base is not None:
         reasons.append(f"base_multiple={base:.0f}ms")

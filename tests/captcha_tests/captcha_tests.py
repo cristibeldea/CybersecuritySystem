@@ -1,19 +1,4 @@
-"""
-Comprehensive CAPTCHA test suite.
-
-Tests EVERY testable feature of the captcha system:
-  - Hold-to-verify behavioral analysis (robot detection)
-  - Grid challenge correctness enforcement
-  - Session enforcement (missing cookie)
-  - Pass token integrity (forgery, expiry, session binding)
-  - Protected route access gate
-  - Nonce replay protection
-  - Direct bypass attempts
-  - Behavioral scoring unit tests (robot vs human-like signals)
-  - Honeypot decoy button traps          (bans IP — runs last)
-  - 5-failure ban logic                   (bans IP — runs last)
-
-"""
+"""Suita end-to-end pentru CAPTCHA: testeaza fiecare caracteristica testabila."""
 
 import asyncio
 import math
@@ -24,73 +9,50 @@ import pytest
 import redis as redis_lib
 from playwright.async_api import async_playwright
 
-# ---------------------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------------------
 BASE = "http://localhost:8080"
 CAPTCHA_URL = f"{BASE}/captcha"
 VERIFY_URL = f"{BASE}/captcha/verify"
 RESET_URL = f"{BASE}/captcha/reset"
-HOLD_DURATION_MS = 1500  # must match JS HOLD_DURATION_MS
+HOLD_DURATION_MS = 1500
 
-# The captcha template intentionally contains multiple elements with
-# id="holdBtn" — all but one are honeypot decoys sitting inside
-# .sr-only containers (offscreen, pointer-events:none) designed to
-# trap naive bots that call document.getElementById('holdBtn').
-# The application JS identifies the REAL button structurally:
-#     document.querySelector("#checkboxStage .field-wrap .hold-btn")
-# The test suite must use the same canonical selector so that mouse
-# interactions actually reach the live button and not a decoy.
 REAL_HOLD_BTN = "#checkboxStage .field-wrap .hold-btn"
 
 REDIS_HOST = "localhost"
 REDIS_PORT = 6379
 BANNED_PREFIX = "ban:"
 
-
-# ===========================================================================
-#  HELPERS
-# ===========================================================================
-
 def _redis():
-    """Return a Redis client for test cleanup."""
+    """Client Redis pentru curatare intre teste."""
     return redis_lib.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
 
-
 def clear_ban(ip="127.0.0.1"):
-    """Remove any existing IP ban from Redis so tests start clean."""
+    """Sterge orice ban activ pe IP din Redis ca testele sa porneasca curat."""
     r = _redis()
     r.delete(f"{BANNED_PREFIX}{ip}")
-    # Also try the Docker bridge IP
     r.delete(f"{BANNED_PREFIX}172.18.0.1")
 
-
 async def fresh_page(playwright, headless=True):
-    """Launch browser, open captcha page, return (browser, page)."""
+    """Porneste browserul, deschide pagina CAPTCHA, returneaza (browser, page)."""
     browser = await playwright.chromium.launch(headless=headless)
     ctx = await browser.new_context()
     page = await ctx.new_page()
     await page.goto(CAPTCHA_URL, wait_until="domcontentloaded")
     return browser, page
 
-
 async def reset_session(page):
-    """Click the Reset button to clear server-side state."""
+    """Apasa butonul Reset ca sa curete starea de pe server."""
     await page.click("#resetBtn")
     await page.wait_for_timeout(500)
-
 
 async def get_status_text(page):
     return (await page.text_content("#status") or "").strip()
 
-
 async def is_banned_ui(page):
-    """Check whether the banned box is visible."""
+    """Verifica daca caseta de ban este vizibila in UI."""
     return await page.is_visible("#bannedBox")
 
-
 async def robot_straight_line(page, target_x, target_y, steps=60, duration_s=0.6):
-    """Move the mouse in a perfectly straight line at constant speed (robot)."""
+    """Misca mouse-ul in linie dreapta cu viteza constanta (robot)."""
     start_x, start_y = 10, 10
     await page.mouse.move(start_x, start_y)
     for i in range(steps):
@@ -100,15 +62,14 @@ async def robot_straight_line(page, target_x, target_y, steps=60, duration_s=0.6
         await page.mouse.move(x, y)
         await asyncio.sleep(duration_s / steps)
 
-
 async def human_like_movement(page, target_x, target_y, steps=80, duration_s=1.5):
-    """Move the mouse with curvature, variable speed, and small overshoots."""
+    """Misca mouse-ul cu curbura, viteza variabila si overshoot."""
     start_x, start_y = random.randint(50, 200), random.randint(50, 200)
     await page.mouse.move(start_x, start_y)
 
     for i in range(steps):
         t = (i + 1) / steps
-        ease = t * t * (3 - 2 * t)  # smoothstep
+        ease = t * t * (3 - 2 * t)
         wobble_x = random.gauss(0, 3 + 8 * (1 - t))
         wobble_y = random.gauss(0, 3 + 8 * (1 - t))
         x = start_x + (target_x - start_x) * ease + wobble_x
@@ -118,15 +79,13 @@ async def human_like_movement(page, target_x, target_y, steps=80, duration_s=1.5
         jitter = random.uniform(0.5, 1.8)
         await asyncio.sleep(base * jitter)
 
-    # Small overshoot then correction
     await page.mouse.move(target_x + random.uniform(3, 8),
                           target_y + random.uniform(2, 6))
     await asyncio.sleep(0.04)
     await page.mouse.move(target_x, target_y)
 
-
 async def do_hold_button(page, movement_fn, btn_selector=REAL_HOLD_BTN):
-    """Execute the hold-to-verify flow with a given mouse movement function."""
+    """Executa fluxul hold-to-verify cu functia de mouse data."""
     btn = await page.wait_for_selector(btn_selector, state="visible", timeout=5000)
     box = await btn.bounding_box()
     tx = box["x"] + box["width"] / 2
@@ -140,9 +99,8 @@ async def do_hold_button(page, movement_fn, btn_selector=REAL_HOLD_BTN):
 
     await page.wait_for_timeout(1500)
 
-
 async def post_json(page, url, payload):
-    """Use page.evaluate to POST JSON and return {status, body}."""
+    """Trimite POST JSON via page.evaluate si returneaza (status, body)."""
     return await page.evaluate("""
         async ([url, payload]) => {
             const res = await fetch(url, {
@@ -162,13 +120,8 @@ async def post_json(page, url, payload):
         }
     """, [url, payload])
 
-
-# ===========================================================================
-#  PAYLOAD GENERATORS
-# ===========================================================================
-
 def _generate_human_like_points(n=80, duration_ms=3000):
-    """Generate mouse points that mimic human movement with curvature and jitter."""
+    """Genereaza puncte de mouse care imita miscarea umana cu curbura si jitter."""
     points = []
     for i in range(n):
         t = (i / n) * duration_ms
@@ -184,9 +137,8 @@ def _generate_human_like_points(n=80, duration_ms=3000):
         })
     return points
 
-
 def _generate_human_like_clicks(n=4, start_t=1000):
-    """Generate clicks with irregular intervals (human-like)."""
+    """Genereaza click-uri cu intervale neregulate, cvasi-umane."""
     clicks = []
     t = start_t
     for i in range(n):
@@ -198,9 +150,8 @@ def _generate_human_like_clicks(n=4, start_t=1000):
         })
     return clicks
 
-
 def _build_human_payload():
-    """Build a payload with human-like behavioral signals."""
+    """Construieste un payload cu semnale comportamentale cvasi-umane."""
     points = _generate_human_like_points(80, 3000)
     clicks = _generate_human_like_clicks(4, 1000)
 
@@ -223,17 +174,12 @@ def _build_human_payload():
         "hp": False,
     }
 
-
-# ===========================================================================
-#  1. HOLD BUTTON — BEHAVIORAL ANALYSIS
-# ===========================================================================
-
 class TestHoldButtonBehavior:
-    """Tests that the hold-to-verify stage rejects robotic interaction."""
+    """Verifica respingerea interactiunilor robotice la hold-to-verify."""
 
     @pytest.mark.asyncio
     async def test_robot_straight_line_fails(self):
-        """Straight-line constant-speed mouse movement should fail."""
+        """Miscarea in linie dreapta cu viteza constanta trebuie sa esueze."""
         clear_ban()
         async with async_playwright() as p:
             browser, page = await fresh_page(p)
@@ -249,7 +195,7 @@ class TestHoldButtonBehavior:
 
     @pytest.mark.asyncio
     async def test_no_mouse_movement_fails(self):
-        """Clicking the hold button with zero mouse movement should fail."""
+        """Apasarea butonului fara miscare de mouse trebuie sa esueze."""
         clear_ban()
         async with async_playwright() as p:
             browser, page = await fresh_page(p)
@@ -257,11 +203,6 @@ class TestHoldButtonBehavior:
                 await reset_session(page)
                 await page.wait_for_timeout(300)
 
-                # NB: getElementById('holdBtn') would hit a honeypot decoy
-                # (the template intentionally exposes 7 such decoys). The
-                # application JS binds mousedown only on the real button at
-                # #checkboxStage .field-wrap .hold-btn — we must hit that one
-                # for the bot-detection pipeline to actually run server-side.
                 await page.evaluate("""
                     () => {
                         const btn = document.querySelector("#checkboxStage .field-wrap .hold-btn");
@@ -283,7 +224,7 @@ class TestHoldButtonBehavior:
 
     @pytest.mark.asyncio
     async def test_teleporting_mouse_fails(self):
-        """Instant teleportation to the button (no intermediate points) should fail."""
+        """Teleportarea instantanee la buton trebuie sa esueze."""
         clear_ban()
         async with async_playwright() as p:
             browser, page = await fresh_page(p)
@@ -309,7 +250,7 @@ class TestHoldButtonBehavior:
 
     @pytest.mark.asyncio
     async def test_hold_released_too_early_does_not_verify(self):
-        """Releasing the hold button before it fills should not trigger verification."""
+        """Eliberarea prematura a butonului nu trebuie sa declanseze verificarea."""
         clear_ban()
         async with async_playwright() as p:
             browser, page = await fresh_page(p)
@@ -334,16 +275,11 @@ class TestHoldButtonBehavior:
             finally:
                 await browser.close()
 
-
-# ===========================================================================
-#  2. GRID CHALLENGE — CORRECTNESS
-# ===========================================================================
-
 class TestGridChallenge:
-    """Tests that wrong/empty grid selections are rejected."""
+    """Verifica respingerea selectiilor gresite sau goale pe grila."""
 
     async def _get_to_grid_stage(self, page):
-        """Advance past the hold button to the grid stage using direct POST."""
+        """Avanseaza dincolo de butonul hold catre etapa grilei prin POST direct."""
         human_payload = _build_human_payload()
         result = await post_json(page, VERIFY_URL, human_payload)
 
@@ -353,7 +289,7 @@ class TestGridChallenge:
 
     @pytest.mark.asyncio
     async def test_wrong_selection_fails(self):
-        """Selecting wrong tiles should not pass the grid challenge."""
+        """Selectarea de tile-uri gresite nu trebuie sa treaca provocarea grilei."""
         clear_ban()
         async with async_playwright() as p:
             browser, page = await fresh_page(p)
@@ -379,7 +315,7 @@ class TestGridChallenge:
 
     @pytest.mark.asyncio
     async def test_empty_selection_fails(self):
-        """Submitting no tiles should not pass the grid challenge."""
+        """Trimiterea fara tile-uri selectate nu trebuie sa treaca grila."""
         clear_ban()
         async with async_playwright() as p:
             browser, page = await fresh_page(p)
@@ -403,17 +339,12 @@ class TestGridChallenge:
             finally:
                 await browser.close()
 
-
-# ===========================================================================
-#  3. SESSION ENFORCEMENT
-# ===========================================================================
-
 class TestSessionEnforcement:
-    """Tests that requests without a valid session cookie are rejected."""
+    """Verifica respingerea cererilor fara cookie de sesiune valid."""
 
     @pytest.mark.asyncio
     async def test_verify_without_session_cookie_returns_403(self):
-        """POST to /captcha/verify with no session cookie should get 403."""
+        """POST la /captcha/verify fara cookie de sesiune trebuie sa primeasca 403."""
         clear_ban()
         async with async_playwright() as p:
             browser, page = await fresh_page(p)
@@ -437,7 +368,7 @@ class TestSessionEnforcement:
 
     @pytest.mark.asyncio
     async def test_reset_without_session_cookie_returns_403(self):
-        """POST to /captcha/reset with no session cookie should get 403."""
+        """POST la /captcha/reset fara cookie de sesiune trebuie sa primeasca 403."""
         clear_ban()
         async with async_playwright() as p:
             browser, page = await fresh_page(p)
@@ -452,17 +383,12 @@ class TestSessionEnforcement:
             finally:
                 await browser.close()
 
-
-# ===========================================================================
-#  4. PASS TOKEN INTEGRITY
-# ===========================================================================
-
 class TestPassToken:
-    """Tests that forged, tampered, or expired tokens do not grant access."""
+    """Verifica refuzul token-urilor forjate, modificate sau expirate."""
 
     @pytest.mark.asyncio
     async def test_forged_token_does_not_grant_access(self):
-        """A made-up captcha_pass cookie should not bypass the captcha gate."""
+        """Un cookie captcha_pass inventat nu trebuie sa treaca poarta."""
         clear_ban()
         async with async_playwright() as p:
             browser, page = await fresh_page(p)
@@ -482,7 +408,7 @@ class TestPassToken:
 
     @pytest.mark.asyncio
     async def test_tampered_token_does_not_grant_access(self):
-        """Modifying even one character of a real token should invalidate it."""
+        """Modificarea unui singur caracter dintr-un token real trebuie sa il invalideze."""
         clear_ban()
         async with async_playwright() as p:
             browser, page = await fresh_page(p)
@@ -503,7 +429,7 @@ class TestPassToken:
 
     @pytest.mark.asyncio
     async def test_token_from_different_session_does_not_work(self):
-        """A pass token tied to session A should not work for session B."""
+        """Un token din sesiunea A nu trebuie sa functioneze pentru sesiunea B."""
         clear_ban()
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
@@ -538,17 +464,12 @@ class TestPassToken:
             await ctx_b.close()
             await browser.close()
 
-
-# ===========================================================================
-#  5. PROTECTED ROUTE ACCESS
-# ===========================================================================
-
 class TestProtectedRouteAccess:
-    """Tests that the main site redirects to captcha without a valid pass."""
+    """Verifica redirectarea catre CAPTCHA in absenta unui pass valid."""
 
     @pytest.mark.asyncio
     async def test_homepage_redirects_to_captcha_without_pass(self):
-        """Visiting / without a pass token should redirect to /captcha."""
+        """Vizitarea / fara pass trebuie sa redirecteze catre /captcha."""
         clear_ban()
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
@@ -561,17 +482,12 @@ class TestProtectedRouteAccess:
 
             await browser.close()
 
-
-# ===========================================================================
-#  6. NONCE REPLAY
-# ===========================================================================
-
 class TestNonceReplay:
-    """Tests that replaying old nonces does not work after reset."""
+    """Verifica refuzul nonce-urilor vechi dupa reset."""
 
     @pytest.mark.asyncio
     async def test_old_nonce_rejected_after_reset(self):
-        """After resetting, a verify call with the old nonce should not pass."""
+        """Dupa reset, un verify cu nonce-ul vechi nu trebuie sa treaca."""
         clear_ban()
         async with async_playwright() as p:
             browser, page = await fresh_page(p)
@@ -595,17 +511,12 @@ class TestNonceReplay:
             finally:
                 await browser.close()
 
-
-# ===========================================================================
-#  7. DIRECT BYPASS ATTEMPTS
-# ===========================================================================
-
 class TestBypassAttempts:
-    """Tests various attempts to bypass the captcha system."""
+    """Verifica diverse incercari de bypass al sistemului CAPTCHA."""
 
     @pytest.mark.asyncio
     async def test_direct_post_pass_action_does_not_bypass(self):
-        """Sending action='pass' directly should not grant a pass token."""
+        """Trimiterea action=pass direct nu trebuie sa acorde token."""
         clear_ban()
         async with async_playwright() as p:
             browser, page = await fresh_page(p)
@@ -634,7 +545,7 @@ class TestBypassAttempts:
 
     @pytest.mark.asyncio
     async def test_grid_verify_at_checkbox_stage_does_not_work(self):
-        """Trying to submit a grid answer while still at checkbox stage should not pass."""
+        """Submit la grila in timpul etapei checkbox nu trebuie sa treaca."""
         clear_ban()
         async with async_playwright() as p:
             browser, page = await fresh_page(p)
@@ -662,7 +573,7 @@ class TestBypassAttempts:
 
     @pytest.mark.asyncio
     async def test_replay_same_request_twice(self):
-        """Submitting the exact same verify payload twice should not pass on second attempt."""
+        """Replay-ul aceleiasi cereri verify nu trebuie sa treaca a doua oara."""
         clear_ban()
         async with async_playwright() as p:
             browser, page = await fresh_page(p)
@@ -682,17 +593,12 @@ class TestBypassAttempts:
             finally:
                 await browser.close()
 
-
-# ===========================================================================
-#  8. BEHAVIORAL SCORING UNIT TESTS (via backend)
-# ===========================================================================
-
 class TestBehavioralScoringViaAPI:
-    """Tests the behavioral scoring by sending crafted payloads to the verify endpoint."""
+    """Verifica scoringul comportamental prin payload-uri trimise la endpoint-ul de verify."""
 
     @pytest.mark.asyncio
     async def test_zero_points_high_risk(self):
-        """Payload with zero mouse points should produce high risk (fail)."""
+        """Payload-ul cu zero puncte de mouse trebuie sa produca risc mare."""
         clear_ban()
         async with async_playwright() as p:
             browser, page = await fresh_page(p)
@@ -720,7 +626,7 @@ class TestBehavioralScoringViaAPI:
 
     @pytest.mark.asyncio
     async def test_constant_velocity_points_high_risk(self):
-        """Points with perfectly constant velocity should score high risk."""
+        """Punctele cu viteza perfect constanta trebuie sa primeasca risc mare."""
         clear_ban()
         async with async_playwright() as p:
             browser, page = await fresh_page(p)
@@ -756,7 +662,7 @@ class TestBehavioralScoringViaAPI:
 
     @pytest.mark.asyncio
     async def test_metronomic_clicks_high_risk(self):
-        """Clicks at perfectly regular intervals should score high risk."""
+        """Click-urile la intervale perfect regulate trebuie sa primeasca risc mare."""
         clear_ban()
         async with async_playwright() as p:
             browser, page = await fresh_page(p)
@@ -794,7 +700,7 @@ class TestBehavioralScoringViaAPI:
 
     @pytest.mark.asyncio
     async def test_too_fast_duration_high_risk(self):
-        """An interaction completed in under 400ms should score high risk."""
+        """O interactiune incheiata in sub 400ms trebuie sa primeasca risc mare."""
         clear_ban()
         async with async_playwright() as p:
             browser, page = await fresh_page(p)
@@ -830,7 +736,7 @@ class TestBehavioralScoringViaAPI:
 
     @pytest.mark.asyncio
     async def test_straight_path_zero_curvature_high_risk(self):
-        """A perfectly straight path (curvature index ~0) should score high risk."""
+        """O traiectorie perfect dreapta (curbura zero) trebuie sa primeasca risc mare."""
         clear_ban()
         async with async_playwright() as p:
             browser, page = await fresh_page(p)
@@ -866,7 +772,7 @@ class TestBehavioralScoringViaAPI:
 
     @pytest.mark.asyncio
     async def test_no_pointer_events_high_risk(self):
-        """A payload with had_pointer=false should add risk."""
+        """Un payload cu had_pointer false trebuie sa adauge risc."""
         clear_ban()
         async with async_playwright() as p:
             browser, page = await fresh_page(p)
@@ -892,17 +798,12 @@ class TestBehavioralScoringViaAPI:
             finally:
                 await browser.close()
 
-
-# ===========================================================================
-#  9. HONEYPOT TRAP  (bans IP — runs near end)
-# ===========================================================================
-
 class TestHoneypot:
-    """Tests that interacting with hidden decoy buttons triggers a ban."""
+    """Verifica banul la interactiunea cu butoane capcana ascunse."""
 
     @pytest.mark.asyncio
     async def test_clicking_decoy_button_triggers_ban(self):
-        """Clicking a honeypot decoy (data-action='verify') should result in a ban."""
+        """Click-ul pe un buton capcana (data-action=verify) trebuie sa duca la ban."""
         clear_ban()
         async with async_playwright() as p:
             browser, page = await fresh_page(p)
@@ -939,7 +840,7 @@ class TestHoneypot:
 
     @pytest.mark.asyncio
     async def test_honeypot_via_direct_post(self):
-        """Sending hp=true directly via POST should return 429 (banned)."""
+        """Trimiterea hp=true direct via POST trebuie sa returneze 429 (banat)."""
         clear_ban()
         async with async_playwright() as p:
             browser, page = await fresh_page(p)
@@ -963,17 +864,12 @@ class TestHoneypot:
                 await browser.close()
                 clear_ban()
 
-
-# ===========================================================================
-#  10. FIVE-FAILURE BAN  (bans IP — runs last)
-# ===========================================================================
-
 class TestFiveFailureBan:
-    """Tests that 5 consecutive failures trigger a ban via Redis."""
+    """Verifica banul dupa 5 esecuri consecutive in Redis."""
 
     @pytest.mark.asyncio
     async def test_ban_after_five_failures(self):
-        """Failing 5 times should result in a ban response (429)."""
+        """5 esecuri consecutive trebuie sa duca la 429 (banat)."""
         clear_ban()
         async with async_playwright() as p:
             browser, page = await fresh_page(p)

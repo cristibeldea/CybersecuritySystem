@@ -1,47 +1,24 @@
-"""
-Test de calibrare a pragului R >= 78 pentru etapa hold-to-verify.
-
-Genereaza traiectorii sintetice la 5 niveluri de sofisticare crescatoare,
-calculeaza scorul de risc local (direct cu algoritmul din guard.py) si
-raporteaza:
-  - statistici per nivel (mean, std, min, max)
-  - rata de detectie (% R >= 78)
-  - recomandare de ajustare a pragului in caz de calibrare proasta.
-
-Niveluri:
-  L1. Perfect liniar             — bot naiv (mouse.move(x1,y1)->mouse.move(x2,y2))
-  L2. Liniar + zgomot pozitional — bot cu jitter aleatoriu pe pozitie
-  L3. Bezier curat (fara jitter) — bot mediu cu curba precalculata
-  L4. Bezier + jitter            — bot sofisticat: curba + jitter pozitional + temporal
-  L5. Cvasi-uman                 — Bezier multi-segment + overshoot + viteza variabila
-"""
+"""Genereaza traiectorii sintetice la 5 niveluri de sofisticare si raporteaza pragul optim al scorului comportamental."""
 import sys, os, io, math, random, statistics
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
-# Permite import-ul direct al guard.py
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "web"))
 from captcha.guard import extract_features, compute_behavior_risk
 
-# -- colors --
 R = "\033[91m"; G = "\033[92m"; Y = "\033[93m"; B = "\033[96m"
 W = "\033[97m"; M = "\033[95m"; BD = "\033[1m"; RS = "\033[0m"
 
-THRESHOLD     = 50   # ajustat dupa adaugarea Sigma-Lognormal + fix overshoot
-N_SAMPLES     = 50        # cate traiectorii generam per nivel
-TARGET_X      = 640       # pozitia tinta (butonul hold-to-verify)
+THRESHOLD     = 50
+N_SAMPLES     = 50
+TARGET_X      = 640
 TARGET_Y      = 360
-START_X_BASE  = 340       # pozitia de start (~300px stanga de buton)
+START_X_BASE  = 340
 START_Y_BASE  = 360
-N_POINTS      = 120       # numar de puncte de traiectorie
-DURATION_MS   = 1500      # durata totala simulata
-
-
-# ---------------------------------------------------------------------------
-# Generatoare de traiectorii
-# ---------------------------------------------------------------------------
+N_POINTS      = 120
+DURATION_MS   = 1500
 
 def trajectory_linear(seed: int):
-    """L1. Linie perfect dreapta. Curbura = 0, viteza constanta."""
+    """L1: linie perfect dreapta, curbura zero, viteza constanta."""
     rng = random.Random(seed)
     sy = START_Y_BASE + rng.uniform(-2, 2)
     ey = TARGET_Y    + rng.uniform(-2, 2)
@@ -54,9 +31,8 @@ def trajectory_linear(seed: int):
         pts.append({"t": t, "x": x, "y": y})
     return pts
 
-
 def trajectory_linear_jitter(seed: int):
-    """L2. Linie + zgomot pozitional uniform (+/-1.5 px)."""
+    """L2: linie plus zgomot pozitional uniform."""
     rng = random.Random(seed)
     base = trajectory_linear(seed)
     for p in base:
@@ -64,19 +40,16 @@ def trajectory_linear_jitter(seed: int):
         p["y"] += rng.uniform(-1.5, 1.5)
     return base
 
-
 def _quadratic_bezier(p0, p1, p2, t):
     u = 1 - t
     return (u*u*p0[0] + 2*u*t*p1[0] + t*t*p2[0],
             u*u*p0[1] + 2*u*t*p1[1] + t*t*p2[1])
 
-
 def trajectory_bezier_clean(seed: int):
-    """L3. Bezier patratic cu un singur punct de control. Fara jitter."""
+    """L3: curba Bezier patratica fara jitter."""
     rng = random.Random(seed)
     p0 = (START_X_BASE, START_Y_BASE)
     p2 = (TARGET_X, TARGET_Y)
-    # Punct de control deasupra/sub mijloc, deviatie moderata
     midx = (p0[0] + p2[0]) / 2
     midy = (p0[1] + p2[1]) / 2
     p1 = (midx + rng.uniform(-30, 30), midy + rng.uniform(-80, 80))
@@ -89,10 +62,8 @@ def trajectory_bezier_clean(seed: int):
         pts.append({"t": t, "x": x, "y": y})
     return pts
 
-
 def trajectory_bezier_jitter(seed: int):
-    """L4. Bezier + jitter pozitional (+/-2 px) + jitter temporal (+/-3 ms).
-    Reprezinta un bot relativ sofisticat care incearca sa para natural."""
+    """L4: curba Bezier plus jitter pozitional si temporal."""
     rng = random.Random(seed)
     base = trajectory_bezier_clean(seed)
     for p in base:
@@ -101,62 +72,42 @@ def trajectory_bezier_jitter(seed: int):
         p["t"] += rng.uniform(-3, 3)
     return base
 
-
 def trajectory_human_like(seed: int):
-    """L5. Traiectorie cvasi-umana:
-    - Bezier in doua segmente (drum cu mici devieri)
-    - Overshoot la sfarsit + revenire la tinta
-    - Variatie de viteza prin sampling neuniform al parametrului t
-    - Cateva mici reveniri ('tremur')
-    """
+    """L5: traiectorie cvasi-umana cu easing, jitter si overshoot final."""
     rng = random.Random(seed)
     p0 = (START_X_BASE + rng.uniform(-30, 30), START_Y_BASE + rng.uniform(-30, 30))
     pmid = (
         (p0[0] + TARGET_X) / 2 + rng.uniform(-40, 40),
         (p0[1] + TARGET_Y) / 2 + rng.uniform(-100, 100),
     )
-    # Overshoot: trece de tinta cu 12-25 px, apoi revine
     overshoot_dx = rng.uniform(12, 25)
     overshoot_dy = rng.uniform(-10, 10)
     p_over = (TARGET_X + overshoot_dx, TARGET_Y + overshoot_dy)
 
-    # Faza 1: Bezier de la p0 prin pmid pana la p_over (80% din puncte)
     n_phase1 = int(N_POINTS * 0.80)
-    # Faza 2: revenire mica de la p_over la tinta exacta (20% din puncte)
     n_phase2 = N_POINTS - n_phase1
 
     pts = []
     accumulated_t = 0.0
-    # Faza 1 — sampling neuniform (accelerare la inceput, decelerare la final)
     for i in range(n_phase1):
         u = i / (n_phase1 - 1)
-        # Ease-in-out: u -> 3u^2 - 2u^3
         ue = 3 * u * u - 2 * u * u * u
         x, y = _quadratic_bezier(p0, pmid, p_over, ue)
-        # Adauga mici reveniri (tremur)
         x += rng.uniform(-1.5, 1.5)
         y += rng.uniform(-1.5, 1.5)
-        # Interval temporal variabil (5-18 ms intre puncte)
         accumulated_t += rng.uniform(5, 18)
         pts.append({"t": accumulated_t, "x": x, "y": y})
 
-    # Faza 2 — revenire la tinta, mai lenta (overshoot correction)
     for i in range(n_phase2):
         u = (i + 1) / n_phase2
         x = p_over[0] + (TARGET_X - p_over[0]) * u
         y = p_over[1] + (TARGET_Y - p_over[1]) * u
         x += rng.uniform(-1, 1)
         y += rng.uniform(-1, 1)
-        # Decelerare clara (intervale mai mari)
         accumulated_t += rng.uniform(15, 25)
         pts.append({"t": accumulated_t, "x": x, "y": y})
 
     return pts
-
-
-# ---------------------------------------------------------------------------
-# Payload + scor
-# ---------------------------------------------------------------------------
 
 def make_payload(points):
     """Construieste un payload identic ca format cu cel trimis de JS-ul paginii."""
@@ -176,17 +127,11 @@ def make_payload(points):
         "env":           {},
     }
 
-
 def score_trajectory(points):
     payload = make_payload(points)
     features = extract_features(payload)
     risk, reasons = compute_behavior_risk(features)
     return risk, reasons
-
-
-# ---------------------------------------------------------------------------
-# Test runner
-# ---------------------------------------------------------------------------
 
 LEVELS = [
     ("L1. Liniar perfect            ", trajectory_linear,         "bot naiv (linie dreapta)"),
@@ -196,7 +141,6 @@ LEVELS = [
     ("L5. Cvasi-uman (overshoot)    ", trajectory_human_like,     "om real (referinta)"),
 ]
 
-
 def percentile(data, p):
     s = sorted(data)
     k = (len(s) - 1) * p / 100
@@ -204,13 +148,11 @@ def percentile(data, p):
     c = min(f + 1, len(s) - 1)
     return s[f] + (s[c] - s[f]) * (k - f)
 
-
 def run():
     print(f"\n{R}{BD}{'='*78}{RS}")
     print(f"{R}{BD}  CALIBRARE PRAG R >= {THRESHOLD}  ({N_SAMPLES} traiectorii / nivel){RS}")
     print(f"{R}{BD}{'='*78}{RS}\n")
 
-    # Verbose: print signals fired for one sample per level
     print(f"{M}{BD}SEMNALE DECLANSATE (un esantion per nivel, seed=0):{RS}")
     for label, gen, _ in LEVELS:
         pts = gen(0)
@@ -238,7 +180,6 @@ def run():
         pct    = 100 * n_ban / len(scores)
         results.append((label, descr, mean, stdev, mn, mx, pct))
 
-    # Print results table
     print(f"{BD}{'NIVEL':<32} {'mean':>6} {'std':>6} {'min':>5} {'max':>5} {'%>=78':>7}{RS}")
     print(f"{'-' * 78}")
     for label, descr, mean, stdev, mn, mx, pct in results:
@@ -246,7 +187,6 @@ def run():
         print(f"{color}{label}{RS} {mean:6.1f} {stdev:6.2f} {mn:5.0f} {mx:5.0f} {pct:6.1f}%")
     print(f"{'-' * 78}\n")
 
-    # Interpretation
     print(f"{B}{BD}INTERPRETARE:{RS}\n")
     l1, l2, l3, l4, l5 = results
 
@@ -272,12 +212,8 @@ def run():
     verdict(l4[0], l4[6], True,  "trebuie sa fie banat")
     verdict(l5[0], l5[6], False, "NU trebuie sa fie banat")
 
-    # Threshold recommendation
     print(f"\n{B}{BD}RECOMANDARE PRAG:{RS}\n")
 
-    # Determine an optimal threshold:
-    # We want the threshold to be ABOVE the max of L5 (human max)
-    # and BELOW some quantile of the bot scores (L1-L4)
     human_scores = []
     bot_scores   = []
     for seed in range(N_SAMPLES):
@@ -316,7 +252,6 @@ def run():
         print(f"  {Y}Suprapunere intre distributii — separare imperfecta.{RS}")
 
     print()
-
 
 if __name__ == "__main__":
     run()

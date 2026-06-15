@@ -1,14 +1,5 @@
-"""
-Stage 7 — Color space rotation.
-
-Rotates the RGB cube by a random small angle around the gray axis (1,1,1)
-using Rodrigues' rotation formula.  This preserves lightness for every
-pixel but globally shifts hue: a red car becomes greenish, a blue sky
-becomes pinkish.  Humans adapt instantly via chromatic adaptation;
-classifiers trained on natural colours do not.
-"""
+"""Etapa 7: rotatia spatiului de culoare RGB in jurul axei gri."""
 import numpy as np
-
 
 def color_space_rotation(img: np.ndarray, max_angle_deg: float = 22.0) -> np.ndarray:
     if img.ndim != 3 or img.shape[2] < 3:
@@ -17,12 +8,10 @@ def color_space_rotation(img: np.ndarray, max_angle_deg: float = 22.0) -> np.nda
     rng = np.random.default_rng()
     angle = np.radians(rng.uniform(-max_angle_deg, max_angle_deg))
 
-    # Rotation around the (1,1,1) gray axis in RGB space
     cos_a = np.cos(angle)
     sin_a = np.sin(angle)
-    k = 1.0 / 3.0  # component along gray axis
+    k = 1.0 / 3.0
 
-    # Rodrigues' rotation formula for axis (1,1,1)/sqrt(3)
     inv3 = 1.0 / 3.0
     rot = np.array([
         [cos_a + inv3 * (1 - cos_a),

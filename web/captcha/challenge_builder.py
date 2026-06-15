@@ -1,19 +1,4 @@
-"""
-Builders for the visual grid CAPTCHA challenges.
-
-Responsibilities:
-
-  * Scan the ``CAPTCHA_photos/grid/<category>/`` and ``.../<category>/fake/``
-    directories to enumerate the available image categories.
-  * Mint per-asset HMAC tokens (``_make_asset_token``) so an attacker
-    cannot brute-force-list images from another category.
-  * Build a 3×3 ``select_not_containing`` challenge by sampling 6-7 real
-    images and 2-3 fakes from a single category, then shuffling.
-
-The top-level entry point is ``build_grid_challenge``; everything else
-is internal but kept module-private (single leading underscore) for
-the legacy test suite that pokes at internals.
-"""
+"""Construieste provocarile vizuale ale grilei CAPTCHA."""
 import hmac
 import json
 import mimetypes
@@ -24,45 +9,37 @@ from typing import Any, Dict, List, Optional, Tuple
 from .constants import GRID_DIR
 from .helpers import _b64url_decode, _b64url_encode, _sign, ensure_dirs
 
-
-# ----------------------------
-# File scanning
-# ----------------------------
 def _is_image_file(name: str) -> bool:
     ext = os.path.splitext(name)[1].lower()
     return ext in {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"}
-
 
 def list_grid_categories() -> List[str]:
     ensure_dirs()
     out: List[str] = []
     for name in os.listdir(GRID_DIR):
         if name == "fake":
-            continue  # skip stray fake dir at top level
+            continue
         full = os.path.join(GRID_DIR, name)
         if os.path.isdir(full):
-            # Only count real images (direct children), not fake subfolder
             imgs = [x for x in os.listdir(full) if _is_image_file(x)]
             if imgs:
                 out.append(name)
     out.sort()
     return out
 
-
 def list_images_in_category(category: str) -> List[str]:
-    """Return real (non-fake) image paths for a category."""
+    """Returneaza path-urile imaginilor reale dintr-o categorie."""
     folder = os.path.join(GRID_DIR, category)
     if not os.path.isdir(folder):
         return []
     return [
         os.path.join(folder, name)
         for name in os.listdir(folder)
-        if _is_image_file(name)  # only files in the category root, not subdirs
+        if _is_image_file(name)
     ]
 
-
 def list_fake_images_in_category(category: str) -> List[str]:
-    """Return fake image paths from the category's 'fake' subfolder."""
+    """Returneaza path-urile imaginilor false dintr-o categorie."""
     folder = os.path.join(GRID_DIR, category, "fake")
     if not os.path.isdir(folder):
         return []
@@ -72,15 +49,10 @@ def list_fake_images_in_category(category: str) -> List[str]:
         if _is_image_file(name)
     ]
 
-
 def guess_mimetype(path: str) -> str:
     mt, _ = mimetypes.guess_type(path)
     return mt or "application/octet-stream"
 
-
-# ----------------------------
-# Human-readable display names for categories
-# ----------------------------
 CATEGORY_DISPLAY: Dict[str, str] = {
     "abstract": "abstract art",
     "airplanes": "airplanes",
@@ -116,15 +88,10 @@ CATEGORY_DISPLAY: Dict[str, str] = {
     "windows": "windows",
 }
 
-
-# ----------------------------
-# Asset tokens
-# ----------------------------
 def _make_asset_token(secret: str, nonce: str, payload: Dict[str, Any]) -> str:
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     sig = _sign(secret, nonce.encode("utf-8") + b"." + raw)
     return f"{_b64url_encode(raw)}.{sig}"
-
 
 def _verify_asset_token(secret: str, nonce: str, token: str) -> Optional[Dict[str, Any]]:
     try:
@@ -139,13 +106,9 @@ def _verify_asset_token(secret: str, nonce: str, token: str) -> Optional[Dict[st
     except Exception:
         return None
 
-
-# ----------------------------
-# Tile + challenge builders
-# ----------------------------
 def _build_tiles(secret: str, nonce: str,
                  items: List[Tuple[str, str, bool]]) -> Tuple[List[Dict], List[str]]:
-    """Build tile dicts and answer list from [(path, category, is_answer), ...]."""
+    """Construieste dict-urile de tile si lista de raspunsuri."""
     random.shuffle(items)
     tiles: List[Dict[str, Any]] = []
     answers: List[str] = []
@@ -164,14 +127,10 @@ def _build_tiles(secret: str, nonce: str,
 
     return tiles, sorted(answers)
 
-
 def _build_select_not_containing(secret: str, nonce: str,
                                  used_categories: List[str]) -> Dict[str, Any]:
-    """Grid of real + fake images from one category.
-    Task: 'Select only the pictures that don't contain <object>.'
-    Correct answers = the fake images."""
+    """Grila cu imagini reale plus false dintr-o singura categorie."""
     all_cats = list_grid_categories()
-    # Need enough real images and at least 2 fakes
     eligible = [c for c in all_cats
                 if c not in used_categories
                 and len(list_images_in_category(c)) >= 6
@@ -208,11 +167,10 @@ def _build_select_not_containing(secret: str, nonce: str,
         "_category": cat,
     }
 
-
 def build_grid_challenge(secret: str, nonce: str,
                          used_categories: List[str],
                          attempt_index: int = 1) -> Dict[str, Any]:
-    """Build a 'select not containing' challenge."""
+    """Construieste o provocare de tip 'selecteaza ce nu contine'."""
     ch = _build_select_not_containing(secret, nonce, used_categories)
     ch["attempt_index"] = attempt_index
     return ch

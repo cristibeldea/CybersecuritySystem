@@ -1,0 +1,93 @@
+{
+  "config": {
+    "max_lines": 200000,
+    "min_requests_per_ip": 10,
+    "log_path": "C:\\Users\\Cristi\\Desktop\\Licenta\\CybersecuritySystem\\tests\\resources\\requests_traffic_kaggle_dataset\\access.log",
+    "parsed_lines": 199998
+  },
+  "summary": {
+    "total_eligible_ips": 1949,
+    "label_counts": {
+      "human": 1631,
+      "bot_known": 181,
+      "unknown": 137
+    },
+    "processing_time_s": 199.36,
+    "events_per_sec": 948.0
+  },
+  "per_module": {
+    "M1_volume": {
+      "tp": 6,
+      "fp": 1036,
+      "tn": 595,
+      "fn": 175,
+      "unknown_banned": 6,
+      "detection_pct": 3.31,
+      "false_positive_pct": 63.52,
+      "precision_pct": 0.58,
+      "total_banned": 1048
+    },
+    "M2_frequency": {
+      "tp": 0,
+      "fp": 0,
+      "tn": 1631,
+      "fn": 181,
+      "unknown_banned": 0,
+      "detection_pct": 0.0,
+      "false_positive_pct": 0.0,
+      "precision_pct": 0,
+      "total_banned": 0
+    },
+    "M3_sequential": {
+      "tp": 0,
+      "fp": 0,
+      "tn": 1631,
+      "fn": 181,
+      "unknown_banned": 0,
+      "detection_pct": 0.0,
+      "false_positive_pct": 0.0,
+      "precision_pct": 0,
+      "total_banned": 0
+    },
+    "M4_fingerprint": {
+      "tp": 0,
+      "fp": 0,
+      "tn": 1631,
+      "fn": 181,
+      "unknown_banned": 0,
+      "detection_pct": 0.0,
+      "false_positive_pct": 0.0,
+      "precision_pct": 0,
+      "total_banned": 0
+    },
+    "M5_funnel": {
+      "tp": 0,
+      "fp": 0,
+      "tn": 1631,
+      "fn": 181,
+      "unknown_banned": 0,
+      "detection_pct": 0.0,
+      "false_positive_pct": 0.0,
+      "precision_pct": 0,
+      "total_banned": 0
+    },
+    "M6_botnet": {
+      "tp": 0,
+      "fp": 0,
+      "tn": 1631,
+      "fn": 181,
+      "unknown_banned": 0,
+      "detection_pct": 0.0,
+      "false_positive_pct": 0.0,
+      "precision_pct": 0,
+      "total_banned": 0
+    }
+  },
+  "global": {
+    "tp": 6,
+    "fp": 1036,
+    "unknown_banned": 6,
+    "detection_pct": 3.31,
+    "false_positive_pct": 63.52
+  }
+}

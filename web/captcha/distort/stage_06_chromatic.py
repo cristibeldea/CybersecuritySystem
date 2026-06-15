@@ -1,14 +1,5 @@
-"""
-Stage 6 — Chromatic aberration.
-
-Simulates the optical aberration of real camera lenses by shifting the
-R and B channels independently with a magnitude that grows radially
-from the image centre.  The G channel is the "reference" because the
-human eye is most sensitive to it and real lens designs are optimised
-around green wavelengths.
-"""
+"""Etapa 6: aberatie cromatica (deplasare diferentiata a canalelor RGB)."""
 import numpy as np
-
 
 def chromatic_aberration(img: np.ndarray, max_shift: int = 3) -> np.ndarray:
     if img.ndim != 3 or img.shape[2] < 3 or max_shift <= 0:
@@ -30,7 +21,7 @@ def chromatic_aberration(img: np.ndarray, max_shift: int = 3) -> np.ndarray:
     max_r = np.sqrt(cx ** 2 + cy ** 2)
     ys, xs = np.mgrid[0:h, 0:w]
     radial = np.sqrt((xs - cx) ** 2 + (ys - cy) ** 2).astype(np.float32) / max_r
-    weight = 0.25 + 0.75 * radial  # 25% even at center
+    weight = 0.25 + 0.75 * radial
 
     result = img.astype(np.float32).copy()
     r_shifted = np.roll(np.roll(img[:, :, 0], sr[0], axis=1), sr[1], axis=0).astype(np.float32)

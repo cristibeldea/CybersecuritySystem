@@ -1,14 +1,5 @@
-"""
-Stage 5 — Halftone overlay.
-
-A dense rotated dot grid is blended over the image.  Dot size varies
-with local brightness (darker areas produce bigger dots), mimicking
-analogue offset printing.  The grid is rotated 35-55 degrees so it
-isn't axis-aligned and stays perceptually plausible to humans but
-injects a periodic texture that CNN texture detectors do not expect.
-"""
+"""Etapa 5: suprapunere halftone (grila densa de puncte rotite)."""
 import numpy as np
-
 
 def halftone_overlay(img: np.ndarray, dot_spacing: int = 5,
                      blend: float = 0.22) -> np.ndarray:

@@ -1,21 +1,4 @@
-"""
-Honeypot subsystem.
-
-Three layers of decoys are injected into every protected HTML response
-via the ``@after_request`` hook ``inject_honeypots``:
-
-  1. Traditional invisible links (opacity:0, off-screen, clip-rect).
-  2. A hidden form whose field names appear in ``TRAP_FIELD_NAMES``.
-  3. 1×1 transparent pixel-links that look like tracking pixels.
-
-A small JS snippet reports any DOM interaction with the traps to
-``/hp-trap``. The hidden form posts to ``/hp-form``. Dynamic trap
-paths (``/user/<token>``, ``/admin/<token>``, ...) are caught by the
-catch-all routes registered through ``register_trap_prefix_routes``.
-
-Any hit on any of these endpoints proves the client is a bot and is
-banned for ``BAN_SECONDS_HONEYPOT``.
-"""
+"""Subsistem de capcane HTML: trei straturi de elemente injectate in raspunsurile protejate."""
 import logging
 import random
 import string
@@ -24,50 +7,38 @@ from flask import Blueprint, request
 
 from config import BAN_SECONDS_HONEYPOT
 
-
 log = logging.getLogger("web")
 bp = Blueprint("honeypot_routes", __name__)
 
-
-# Dynamic trap path prefixes — combined with a random token per page
-# load to create unique, unpredictable trap URLs.
 TRAP_PATH_PREFIXES = [
     "/user/", "/account/", "/api/v2/", "/settings/",
     "/admin/", "/profile/", "/download/", "/export/",
     "/internal/", "/config/", "/session/", "/auth/",
 ]
 
-# Trap form field names — no real form uses these. Any submission = bot.
 TRAP_FIELD_NAMES = {
     "newsletter", "terms_agree", "remember_me",
     "opt_out", "confirm_age", "website_url",
     "fax_number", "middle_name",
 }
 
-
-# ---------------------------------------------------------------------
-# Honeypot HTML builder (injected as @after_request)
-# ---------------------------------------------------------------------
 def _rand_id(n=8):
-    """Random CSS-safe id like 'a3f8c1d2'."""
+    """Id aleator CSS-safe."""
     return random.choice(string.ascii_lowercase) + "".join(
         random.choices(string.ascii_lowercase + string.digits, k=n - 1)
     )
 
-
 def _rand_token(n=10):
-    """Random URL-safe token like 'a3f8c1d2e9'."""
+    """Token aleator URL-safe."""
     return "".join(random.choices(string.ascii_lowercase + string.digits, k=n))
 
-
 def _generate_trap_paths(count=4):
-    """Generate unique dynamic trap paths for this page load."""
+    """Genereaza path-uri unice de capcana pentru aceasta incarcare."""
     prefixes = random.sample(TRAP_PATH_PREFIXES, min(count, len(TRAP_PATH_PREFIXES)))
     return [prefix + _rand_token() for prefix in prefixes]
 
-
 def _build_honeypot_html() -> str:
-    """Generate randomised invisible honeypot elements + JS detection script."""
+    """Genereaza elemente capcana ascunse si script JS de detectie."""
     cls_zero  = _rand_id()
     cls_off   = _rand_id()
     cls_clip  = _rand_id()
@@ -97,7 +68,6 @@ def _build_honeypot_html() -> str:
 
     traps = []
 
-    # Layer 1: traditional hidden links (2 paths)
     for href in trap_paths[:2]:
         cls = random.choice([cls_zero, cls_off, cls_clip])
         tid = _rand_id()
@@ -106,7 +76,6 @@ def _build_honeypot_html() -> str:
             f'data-{trap_attr}="1" tabindex="-1" aria-hidden="true">link</a>'
         )
 
-    # Layer 2: hidden form with trap fields
     form_id = _rand_id()
     form_parts = [f'<form action="/hp-form" method="POST" class="{cls_off}" '
                   f'id="{form_id}" aria-hidden="true">']
@@ -122,7 +91,6 @@ def _build_honeypot_html() -> str:
     form_parts.append('</form>')
     traps.append("\n".join(form_parts))
 
-    # Layer 3: 1px transparent pixel-links (remaining paths)
     for href in trap_paths[2:]:
         tid = _rand_id()
         traps.append(
@@ -132,7 +100,6 @@ def _build_honeypot_html() -> str:
 
     random.shuffle(traps)
 
-    # Layer 4: JS detection — bonus for headless browsers
     script = f"""<script>
 (function(){{
 var ts=document.querySelectorAll('[data-{trap_attr}]');
@@ -149,13 +116,9 @@ body:JSON.stringify({{t:Date.now(),tag:el.tagName,id:el.id}}),credentials:"same-
 
     return style + "\n".join(traps) + script
 
-
-# ---------------------------------------------------------------------
-# Trap endpoints
-# ---------------------------------------------------------------------
 @bp.post("/hp-trap")
 def honeypot_trap_js():
-    """JS-reported interaction with a hidden element."""
+    """Interactiune raportata de JS cu un element ascuns."""
     from ban_manager import ban_ip_with_history
     from helpers import get_client_ip
     ip = get_client_ip()
@@ -163,10 +126,9 @@ def honeypot_trap_js():
     ban_ip_with_history(ip, BAN_SECONDS_HONEYPOT, reason="honeypot:js_trap")
     return "", 204
 
-
 @bp.post("/hp-form")
 def honeypot_form_trap():
-    """A bot submitted the hidden honeypot form."""
+    """Un bot a trimis formularul ascuns de capcana."""
     from ban_manager import ban_ip_with_history
     from helpers import get_client_ip
     ip = get_client_ip()
@@ -174,16 +136,8 @@ def honeypot_form_trap():
     ban_ip_with_history(ip, BAN_SECONDS_HONEYPOT, reason="honeypot:form_submit")
     return "", 204
 
-
-# ---------------------------------------------------------------------
-# App-level registrations
-# ---------------------------------------------------------------------
 def register_trap_prefix_routes(app) -> None:
-    """Catch-all routes for the dynamic trap-path prefixes.
-
-    Any request matching ``/user/<token>``, ``/account/<token>`` etc.
-    is a bot following a honeypot link → ban.
-    """
+    """Rute catch-all pentru prefixele dinamice de capcana."""
     from ban_manager import ban_ip_with_history
     from helpers import get_client_ip
 
@@ -207,9 +161,8 @@ def register_trap_prefix_routes(app) -> None:
             methods=["GET", "POST"],
         )
 
-
 def register_inject_after_request(app) -> None:
-    """Wire the @after_request hook that injects honeypots into HTML pages."""
+    """Conecteaza hook-ul @after_request care injecteaza capcane in paginile HTML."""
     @app.after_request
     def inject_honeypots(response):
         if response.content_type and "text/html" not in response.content_type:

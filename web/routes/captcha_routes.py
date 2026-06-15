@@ -1,12 +1,4 @@
-"""
-Captcha + behavioural-telemetry routes.
-
-  /captcha                    — render the captcha page
-  /captcha/verify   (POST)    — verify checkbox / grid attempts
-  /captcha/reset    (POST)    — reset the in-memory session state
-  /captcha/asset/<n>/<t>      — serve a per-tile cropped image
-  /behavior/check   (POST)    — post-captcha behavioural risk check
-"""
+"""Rutele pentru CAPTCHA si telemetria comportamentala."""
 import io
 import json
 import logging
@@ -55,14 +47,9 @@ from helpers import (
 )
 from request_checker import BANNED_PREFIX, is_banned
 
-
 log = logging.getLogger("web")
 bp = Blueprint("captcha_routes", __name__)
 
-
-# ---------------------------------------------------------------------
-# /captcha
-# ---------------------------------------------------------------------
 @bp.get("/captcha")
 def captcha_page():
     sid = get_or_set_sid()
@@ -71,8 +58,6 @@ def captcha_page():
     banned, ban_until = captcha_is_banned(state)
 
     if banned:
-        # If in-memory says banned but Redis ban was cleared (admin unban),
-        # reset the in-memory state so the user can retry.
         ip = get_client_ip()
         if not is_banned(r, ip):
             state["ban_until"] = 0
@@ -82,8 +67,6 @@ def captcha_page():
             banned = False
             ban_until = 0
         else:
-            # Trust Redis TTL — the in-memory value may be stale
-            # (e.g. hardcoded 60s while the actual Redis ban is from the ladder).
             ttl = r.ttl(f"{BANNED_PREFIX}{ip}")
             if ttl and ttl > 0:
                 ban_until = _now() + ttl
@@ -114,10 +97,6 @@ def captcha_page():
     )
     return resp
 
-
-# ---------------------------------------------------------------------
-# /captcha/verify
-# ---------------------------------------------------------------------
 @bp.post("/captcha/verify")
 def captcha_verify():
     sid = request.cookies.get(SESSION_COOKIE, "")
@@ -127,7 +106,6 @@ def captcha_verify():
     state = ensure_state(sid)
     payload = request.get_json(silent=True) or {}
 
-    # Honeypot trap — instant ban, separate from captcha failure logic
     if payload.get("hp"):
         ip = get_client_ip()
         ban_ip_with_history(ip, BAN_SECONDS_HONEYPOT,
@@ -176,7 +154,6 @@ def captcha_verify():
 
     current_kind = state["current"]["kind"]
 
-    # -- Checkbox stage --
     if current_kind == "checkbox":
         ok, msg = verify_checkbox(CAPTCHA_SECRET, state, payload)
 
@@ -205,7 +182,6 @@ def captcha_verify():
             "state": safe_state(state),
         })
 
-    # -- Grid stage --
     if current_kind == "grid":
         ok, _debug = verify_grid_answer(state, payload)
 
@@ -246,10 +222,6 @@ def captcha_verify():
 
     abort(400)
 
-
-# ---------------------------------------------------------------------
-# /captcha/reset
-# ---------------------------------------------------------------------
 @bp.post("/captcha/reset")
 def captcha_reset():
     sid = request.cookies.get(SESSION_COOKIE, "")
@@ -263,10 +235,6 @@ def captcha_reset():
         "ban_until": 0,
     })
 
-
-# ---------------------------------------------------------------------
-# /captcha/asset/<nonce>/<token>
-# ---------------------------------------------------------------------
 @bp.get("/captcha/asset/<nonce>/<token>")
 def captcha_asset(nonce, token):
     sid = request.cookies.get(SESSION_COOKIE, "")
@@ -277,7 +245,6 @@ def captcha_asset(nonce, token):
 
     path, mimetype, cx, cy = result
 
-    # Crop a 90% window centred at (cx, cy) fractions of the image
     img = Image.open(path)
     w, h = img.size
     crop_w = int(w * 0.9)
@@ -296,15 +263,9 @@ def captcha_asset(nonce, token):
     buf.seek(0)
     return send_file(buf, mimetype=mimetype)
 
-
-# ---------------------------------------------------------------------
-# /behavior/check
-# ---------------------------------------------------------------------
 @bp.post("/behavior/check")
 def behavior_check():
-    """Receive behavioural telemetry from the main website, score it
-    with the same pipeline used by the captcha, and ban the IP if the
-    risk is too high."""
+    """Primeste telemetrie comportamentala de la site, o scoreaza si returneaza decizia."""
     ip = get_client_ip()
     payload = request.get_json(silent=True) or {}
 
@@ -314,7 +275,6 @@ def behavior_check():
     log.info("behavior_check ip=%s risk=%d reasons=%s",
              ip, risk, json.dumps(reasons, default=str))
 
-    # Near-miss: within 80-100% of threshold
     near_miss_floor = int(BEHAVIOR_RISK_THRESHOLD * 0.80)
     if near_miss_floor <= risk < BEHAVIOR_RISK_THRESHOLD:
         log_near_miss(ip, "behavior", risk, BEHAVIOR_RISK_THRESHOLD,

@@ -1,34 +1,20 @@
-"""
-Feature extraction from the raw behavioral telemetry payload.
-
-The client (``static/js/captcha.js``) collects mouse/touch sample
-points, click timestamps, focus events and per-tile hover times.  This
-module condenses that raw stream into ≈19 scalar features describing
-trajectory smoothness, velocity profile (Sigma-Lognormal proxy), click
-rhythm and hover-time distribution.
-
-Downstream, ``behavior_scoring.py`` turns these features into a single
-0-100 risk score.
-"""
+"""Extragerea caracteristicilor din telemetria comportamentala bruta."""
 import math
 from typing import Any, Dict, List, Optional
 
 from .helpers import _safe_float
 
-
 def _std_dev(values: List[float]) -> float:
-    """Population standard deviation."""
+    """Deviatia standard de populatie."""
     n = len(values)
     if n < 2:
         return 0.0
     mean = sum(values) / n
     return math.sqrt(sum((v - mean) ** 2 for v in values) / n)
 
-
 def _cross_2d(ax: float, ay: float, bx: float, by: float) -> float:
-    """2D cross product magnitude (used for curvature)."""
+    """Magnitudinea produsului vectorial 2D, folosita pentru curbura."""
     return abs(ax * by - ay * bx)
-
 
 def extract_features(payload: Dict[str, Any]) -> Dict[str, Any]:
     duration_ms = _safe_float(payload.get("duration_ms"), 0.0)
@@ -41,9 +27,6 @@ def extract_features(payload: Dict[str, Any]) -> Dict[str, Any]:
     n_points = len(points) if isinstance(points, list) else 0
     n_clicks = len(clicks) if isinstance(clicks, list) else 0
 
-    # --------------------------------------------------
-    # Trajectory analysis from mouse/touch sample points
-    # --------------------------------------------------
     velocities: List[float] = []
     segment_distances: List[float] = []
     total_path_dist = 0.0
@@ -70,16 +53,14 @@ def extract_features(payload: Dict[str, Any]) -> Dict[str, Any]:
             total_path_dist += step
             segment_distances.append(step)
 
-            velocity = step / dt  # px/ms
+            velocity = step / dt
             velocities.append(velocity)
 
-            # Direction reversal: dot product < 0 means > 90 degree turn
             if prev_dx is not None:
                 dot = dx * prev_dx + dy * prev_dy
                 if dot < 0:
                     direction_reversals += 1
 
-                # Curvature via cross product — angle between consecutive segments
                 cross = _cross_2d(prev_dx, prev_dy, dx, dy)
                 prev_mag = math.hypot(prev_dx, prev_dy)
                 curr_mag = math.hypot(dx, dy)
@@ -88,15 +69,6 @@ def extract_features(payload: Dict[str, Any]) -> Dict[str, Any]:
                     sin_angle = min(1.0, cross / denom)
                     curvature_angles.append(sin_angle)
 
-                # Overshoot + correction — must satisfy ALL conditions:
-                #  (1) Direction reversal (dot < 0)
-                #  (2) Both segments have non-trivial displacement (>= 4 px)
-                #     This filters out micro-zigzags from jitter, which would
-                #     otherwise inflate the overshoot count artificially.
-                #  (3) Speed drops significantly after the reversal
-                #  (4) Occurs in the final 30% of the trajectory (target-approach zone)
-                #     Real overshoots happen near the click destination, not
-                #     scattered randomly across the path.
                 if (dot < 0
                         and prev_mag >= 4.0
                         and curr_mag >= 4.0
@@ -109,7 +81,6 @@ def extract_features(payload: Dict[str, Any]) -> Dict[str, Any]:
 
             prev_dx, prev_dy = dx, dy
 
-    # Straight-line distance (first point to last point)
     straight_line_dist = 0.0
     if n_points >= 2:
         p_first = points[0]
@@ -119,15 +90,11 @@ def extract_features(payload: Dict[str, Any]) -> Dict[str, Any]:
             _safe_float(p_last.get("y"), 0.0) - _safe_float(p_first.get("y"), 0.0),
         )
 
-    # === HIGH VALUE: Velocity standard deviation ===
     velocity_std = _std_dev(velocities)
     velocity_mean = sum(velocities) / max(1, len(velocities))
 
-    # === HIGH VALUE: Path curvature index ===
-    # Average sin(angle) between consecutive segments; 0 = perfectly straight
     curvature_index = (sum(curvature_angles) / max(1, len(curvature_angles))) if curvature_angles else 0.0
 
-    # === HIGH VALUE: Inter-click intervals and variance ===
     click_intervals: List[float] = []
     if isinstance(clicks, list) and n_clicks >= 2:
         click_times = sorted(_safe_float(c.get("t") if isinstance(c, dict) else c, 0.0) for c in clicks)
@@ -137,7 +104,6 @@ def extract_features(payload: Dict[str, Any]) -> Dict[str, Any]:
     click_interval_std = _std_dev(click_intervals)
     click_interval_mean = sum(click_intervals) / max(1, len(click_intervals))
 
-    # === HIGH VALUE: Per-tile hover times ===
     hover_times: List[float] = []
     if isinstance(tile_hovers, dict):
         for tid, info in tile_hovers.items():
@@ -148,22 +114,8 @@ def extract_features(payload: Dict[str, Any]) -> Dict[str, Any]:
     hover_time_mean = sum(hover_times) / max(1, len(hover_times))
     n_tiles_hovered = len(hover_times)
 
-    # === MEDIUM VALUE: Distance/straight-line ratio (detour ratio) ===
     detour_ratio = (total_path_dist / max(1.0, straight_line_dist)) if straight_line_dist > 1.0 else 0.0
 
-    # === HIGH VALUE: Velocity profile shape (Sigma-Lognormal proxy) ===
-    # Human motor movements follow a log-normal velocity profile: cursor
-    # accelerates to a peak in the middle of the trajectory, then decelerates.
-    # This is a kinematic signature of the motor cortex (Khan & Hou 2024).
-    # Bots — even with positional jitter — typically have uniform velocity.
-    #
-    # Two metrics:
-    #   - bell_ratio   : ratio of middle-third mean velocity to (first+last)/2
-    #                    Values > 1.3 indicate a bell-shaped profile (human)
-    #                    Values near 1.0 indicate uniform velocity (bot)
-    #   - velocity_skew: 3rd standardized moment of the velocity distribution
-    #                    Strong positive skew => log-normal-like (human)
-    #                    Near-zero skew       => symmetric (uniform-like, bot)
     velocity_bell_ratio = 0.0
     velocity_skew       = 0.0
     n_vel = len(velocities)
@@ -175,14 +127,12 @@ def extract_features(payload: Dict[str, Any]) -> Dict[str, Any]:
         edge_avg = (v_first + v_last) / 2.0
         if edge_avg > 0.0001:
             velocity_bell_ratio = v_middle / edge_avg
-        # 3rd standardized moment (skewness)
         v_mean = sum(velocities) / n_vel
         v_var  = sum((v - v_mean) ** 2 for v in velocities) / n_vel
         if v_var > 1e-8:
             v_sd = math.sqrt(v_var)
             velocity_skew = sum((v - v_mean) ** 3 for v in velocities) / (n_vel * v_sd ** 3)
 
-    # === Blur count (supporting signal) ===
     blur_count = 0
     if isinstance(focus, list):
         for ev in focus:
@@ -190,7 +140,6 @@ def extract_features(payload: Dict[str, Any]) -> Dict[str, Any]:
                 blur_count += 1
 
     return {
-        # High value
         "velocity_std": round(velocity_std, 4),
         "velocity_bell_ratio": round(velocity_bell_ratio, 3),
         "velocity_skew": round(velocity_skew, 3),
@@ -202,12 +151,10 @@ def extract_features(payload: Dict[str, Any]) -> Dict[str, Any]:
         "hover_time_mean": round(hover_time_mean, 2),
         "n_tiles_hovered": n_tiles_hovered,
         "overshoot_corrections": overshoot_corrections,
-        # Medium value
         "duration_ms": round(duration_ms, 1),
         "direction_reversals": direction_reversals,
         "detour_ratio": round(detour_ratio, 3),
         "total_path_dist": round(total_path_dist, 1),
-        # Supporting
         "had_pointer": had_pointer,
         "n_points": n_points,
         "n_clicks": n_clicks,

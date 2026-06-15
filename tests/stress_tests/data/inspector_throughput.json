@@ -1,0 +1,48 @@
+{
+  "redis_host": "localhost",
+  "redis_port": 6379,
+  "channel": "requests_channel",
+  "settle_seconds": 3.0,
+  "results": [
+    {
+      "num_ips": 10,
+      "events_per_ip": 25,
+      "total_events": 250,
+      "publish_time_ms": 16.27,
+      "publish_rate_msgps": 15363.3,
+      "ips_banned": 10,
+      "ban_completion_pct": 100.0,
+      "settle_seconds": 3.0
+    },
+    {
+      "num_ips": 50,
+      "events_per_ip": 25,
+      "total_events": 1250,
+      "publish_time_ms": 53.05,
+      "publish_rate_msgps": 23562.1,
+      "ips_banned": 50,
+      "ban_completion_pct": 100.0,
+      "settle_seconds": 3.0
+    },
+    {
+      "num_ips": 100,
+      "events_per_ip": 25,
+      "total_events": 2500,
+      "publish_time_ms": 121.02,
+      "publish_rate_msgps": 20657.1,
+      "ips_banned": 100,
+      "ban_completion_pct": 100.0,
+      "settle_seconds": 3.0
+    },
+    {
+      "num_ips": 200,
+      "events_per_ip": 25,
+      "total_events": 5000,
+      "publish_time_ms": 185.59,
+      "publish_rate_msgps": 26941.5,
+      "ips_banned": 141,
+      "ban_completion_pct": 70.5,
+      "settle_seconds": 3.0
+    }
+  ]
+}

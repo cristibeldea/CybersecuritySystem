@@ -1,11 +1,4 @@
-"""
-DEMO 1 — Dumb Bot: detectat la Hold to Verify
-==============================================
-- Cursor rosu vizibil, miscare in linie dreapta perfecta
-- Hold to Verify robotic (viteza constanta, zero curbura)
-- Sistemul afiseaza "Incercati din nou" de 2 ori
-- La al 3-lea esec: BAN, pagina afiseaza countdown
-"""
+"""Demo 1: bot naiv care esueaza la hold-to-verify din cauza miscarii in linie dreapta."""
 
 import asyncio
 import base64
@@ -30,7 +23,6 @@ def err(msg):   print(f"{R}{B}[x]{RS} {msg}")
 def step(msg):  print(f"{W}{B}[->]{RS} {msg}")
 def sep():      print(f"{R}{B}{'─'*60}{RS}")
 
-
 def unban_ip(ip: str):
     """Sterge orice ban anterior pe IP-ul fals via admin API."""
     try:
@@ -47,7 +39,6 @@ def unban_ip(ip: str):
         step(f"Ban anterior sters pentru {ip}")
     except Exception:
         pass
-
 
 CURSOR_JS = """
 (function() {
@@ -71,7 +62,6 @@ CURSOR_JS = """
 })();
 """
 
-# Injecteaza puncte robotice in arrays-urile paginii INAINTE de holdDown
 INJECT_POINTS_JS = """
 ([startX, endX, y, nSteps, intervalMs]) => {
     if (typeof points !== 'undefined') points.length = 0;
@@ -103,7 +93,6 @@ CHECK_PAGE_STATE_JS = """
 }
 """
 
-
 async def animate_cursor(page, start_x, btn_x, btn_y, n_steps=90):
     """Misca cursorul SVG in linie dreapta spre buton."""
     await page.evaluate(f"window.__botMoveCursor({start_x}, {btn_y})")
@@ -117,7 +106,6 @@ async def animate_cursor(page, start_x, btn_x, btn_y, n_steps=90):
         if i % 12 == 0:
             await page.mouse.move(px, btn_y)
         await asyncio.sleep(0.016)
-
 
 async def run_demo():
     print()
@@ -175,27 +163,22 @@ async def run_demo():
             print()
             warn(f"Tentativa {attempt}/3 — miscare robotica spre buton...")
 
-            # 1. Animeaza cursorul
             await animate_cursor(page, 60.0, btn_x, btn_y)
 
-            # 2. Injecteaza punctele robotice in arrays-urile paginii
             n_pts = await page.evaluate(
                 INJECT_POINTS_JS, [60.0, btn_x, btn_y, 120, 15.0]
             )
             step(f"{n_pts} puncte injectate (15ms fix, y={btn_y:.0f} constant)")
 
-            # 3. Hold buton: pagina detecteaza holdDown → holdTick →
-            #    dupa HOLD_DURATION_MS (1000ms) → verifyCheckbox() automat
             await page.mouse.move(btn_x, btn_y)
             await asyncio.sleep(0.1)
             await page.mouse.down()
-            await asyncio.sleep(1.15)   # asteapta sa se umple bara
+            await asyncio.sleep(1.15)
             await page.mouse.up()
 
             step("Butonul eliberat — astept raspunsul serverului...")
             await asyncio.sleep(2.0)
 
-            # 4. Citeste starea paginii
             state_info = await page.evaluate(CHECK_PAGE_STATE_JS)
             status_text = state_info.get("statusText", "")
             is_banned   = state_info.get("banned", False)
@@ -222,7 +205,6 @@ async def run_demo():
 
             await asyncio.sleep(1.2)
 
-            # 5. Reseteaza butonul vizual pentru urmatoarea tentativa
             await page.evaluate("""
                 () => {
                     const btn  = document.querySelector('#checkboxStage .hold-btn');
@@ -245,7 +227,6 @@ async def run_demo():
 
     print()
     info("Demo incheiat.")
-
 
 if __name__ == "__main__":
     try:

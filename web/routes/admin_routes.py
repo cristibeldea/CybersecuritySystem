@@ -1,9 +1,4 @@
-"""
-Admin dashboard + JSON API for inspecting bans, history, near-misses,
-thresholds and settings.
-
-All routes are protected by HTTP Basic Auth via ``require_admin``.
-"""
+"""Panou de administrare si API JSON pentru ban-uri, istoric, near-miss-uri si setari."""
 import json
 import logging
 
@@ -33,33 +28,23 @@ from event_publisher import log_ban_event
 from helpers import _hash_password, require_admin
 from request_checker import BANNED_PREFIX
 
-
 log = logging.getLogger("web")
 bp = Blueprint("admin_routes", __name__)
 
-
-# ---------------------------------------------------------------------
-# Dashboard page
-# ---------------------------------------------------------------------
 @bp.get("/admin")
 @require_admin
 def admin_page():
     return render_template("admin.html")
 
-
-# ---------------------------------------------------------------------
-# Ban inspection + manual ban / unban
-# ---------------------------------------------------------------------
 @bp.get("/admin/api/bans")
 @require_admin
 def admin_get_bans():
-    """List all currently active bans with TTL and reason."""
+    """Listeaza toate ban-urile active cu TTL si motiv."""
     keys = r.keys(f"{BANNED_PREFIX}*")
     bans = []
     for key in sorted(keys):
         ip = key[len(BANNED_PREFIX):]
         ttl = r.ttl(key)
-        # Find the most recent matching reason from the history list
         reason = ""
         raw_history = r.lrange(REDIS_BAN_HISTORY, 0, 99)
         for raw in raw_history:
@@ -73,7 +58,6 @@ def admin_get_bans():
         bans.append({"ip": ip, "ttl": max(0, ttl), "reason": reason})
     return jsonify({"bans": bans})
 
-
 @bp.post("/admin/api/unban")
 @require_admin
 def admin_unban():
@@ -85,7 +69,6 @@ def admin_unban():
     log.info("ADMIN UNBAN ip=%s", ip)
     log_ban_event(ip, "manual:unban:admin", 0)
     return jsonify({"status": "ok"})
-
 
 @bp.post("/admin/api/ban")
 @require_admin
@@ -100,12 +83,10 @@ def admin_manual_ban():
     log.info("ADMIN BAN ip=%s duration=%d reason=%s", ip, duration, reason)
     return jsonify({"status": "ok"})
 
-
 @bp.post("/admin/api/unban-keep-counter")
 @require_admin
 def admin_unban_keep_counter():
-    """Clear active ban but preserve offense counter — used by escalation
-    demo to advance through ban levels without waiting for natural expiry."""
+    """Sterge banul activ dar pastreaza contorul de infractiuni."""
     data = request.get_json(silent=True) or {}
     ip = data.get("ip", "").strip()
     if not ip:
@@ -115,11 +96,10 @@ def admin_unban_keep_counter():
     log_ban_event(ip, "manual:unban:demo-skip", 0)
     return jsonify({"status": "ok", "offense_count": get_offense_count(ip)})
 
-
 @bp.post("/admin/api/reset-offense")
 @require_admin
 def admin_reset_offense():
-    """Reset the offense counter for an IP (cleanup between demo runs)."""
+    """Reseteaza contorul de infractiuni pentru un IP."""
     data = request.get_json(silent=True) or {}
     ip = data.get("ip", "").strip()
     if not ip:
@@ -128,7 +108,6 @@ def admin_reset_offense():
     r.delete(f"{BANNED_PREFIX}{ip}")
     log.info("ADMIN RESET OFFENSE ip=%s", ip)
     return jsonify({"status": "ok"})
-
 
 @bp.get("/admin/api/offense-count")
 @require_admin
@@ -145,10 +124,6 @@ def admin_offense_count():
         "ladder": BAN_LADDER,
     })
 
-
-# ---------------------------------------------------------------------
-# History + recent logs
-# ---------------------------------------------------------------------
 @bp.get("/admin/api/ban-history")
 @require_admin
 def admin_ban_history():
@@ -160,7 +135,6 @@ def admin_ban_history():
         except Exception:
             pass
     return jsonify({"history": history})
-
 
 @bp.get("/admin/api/near-misses")
 @require_admin
@@ -174,7 +148,6 @@ def admin_near_misses():
             pass
     return jsonify({"events": events})
 
-
 @bp.get("/admin/api/logs")
 @require_admin
 def admin_logs():
@@ -187,14 +160,10 @@ def admin_logs():
             pass
     return jsonify({"logs": logs})
 
-
-# ---------------------------------------------------------------------
-# Thresholds + settings + password
-# ---------------------------------------------------------------------
 @bp.get("/admin/api/thresholds")
 @require_admin
 def admin_get_thresholds():
-    """Return current threshold values (overrides + defaults)."""
+    """Returneaza valorile curente ale pragurilor (override-uri si default-uri)."""
     defaults = {
         "max_req": 20,
         "window_seconds": 10,
@@ -226,7 +195,6 @@ def admin_get_thresholds():
             pass
     return jsonify(defaults)
 
-
 @bp.post("/admin/api/thresholds")
 @require_admin
 def admin_set_thresholds():
@@ -236,12 +204,10 @@ def admin_set_thresholds():
     log.info("ADMIN thresholds updated: %s", list(data.keys()))
     return jsonify({"status": "ok"})
 
-
 @bp.get("/admin/api/settings")
 @require_admin
 def admin_get_settings():
     return jsonify({"ban_mode": get_ban_mode()})
-
 
 @bp.post("/admin/api/settings")
 @require_admin
@@ -253,7 +219,6 @@ def admin_set_settings():
             r.hset(REDIS_SETTINGS, "ban_mode", mode)
             log.info("ADMIN ban_mode changed to: %s", mode)
     return jsonify({"status": "ok"})
-
 
 @bp.post("/admin/api/password")
 @require_admin

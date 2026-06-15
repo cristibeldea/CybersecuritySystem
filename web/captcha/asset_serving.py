@@ -1,12 +1,4 @@
-"""
-Serve tile images for the grid CAPTCHA.
-
-Given a session id, the per-session nonce and a per-asset HMAC token,
-``build_asset_response_data`` validates everything and returns the
-on-disk path plus the crop center fractions (``cx``, ``cy``) used by
-the Flask route to render the tile.  Returns ``None`` for any
-validation failure so the route can answer 404 without leaking detail.
-"""
+"""Serveste imaginile pentru grila CAPTCHA pe baza tokenului HMAC per asset."""
 import os
 from typing import Optional, Tuple
 
@@ -15,9 +7,8 @@ from .constants import GRID_DIR
 from .helpers import _safe_float
 from .session_state import get_state
 
-
 def build_asset_response_data(secret: str, sid: str, nonce: str, token: str) -> Optional[Tuple[str, str, float, float]]:
-    """Returns (path, mimetype, cx, cy) or None. cx/cy are crop center fractions."""
+    """Returneaza (path, mimetype, cx, cy) sau None pentru un asset autentificat."""
     state = get_state(sid)
     if not state:
         return None

@@ -1,0 +1,168 @@
+{
+  "dataset": "C:\\Users\\Cristi\\Desktop\\Licenta\\CybersecuritySystem\\tests\\resources\\web_bot_detection_dataset",
+  "label_counts": {
+    "human": 50,
+    "moderate_bot": 50,
+    "advanced_bot": 50
+  },
+  "n_sessions_scored": 150,
+  "n_skipped": 0,
+  "distributions": {
+    "human": {
+      "n": 50,
+      "min": 25,
+      "max": 59,
+      "mean": 47.08,
+      "median": 47
+    },
+    "moderate_bot": {
+      "n": 50,
+      "min": 39,
+      "max": 91,
+      "mean": 71.72,
+      "median": 77
+    },
+    "advanced_bot": {
+      "n": 50,
+      "min": 29,
+      "max": 71,
+      "mean": 48.16,
+      "median": 47
+    }
+  },
+  "metrics_by_threshold": [
+    {
+      "threshold": 32,
+      "tp": 97,
+      "fp": 47,
+      "tn": 3,
+      "fn": 3,
+      "false_positive_rate_pct": 94.0,
+      "false_negative_rate_pct": 3.0,
+      "detection_rate_pct": 97.0,
+      "precision_pct": 67.36,
+      "f1_score": 0.7951
+    },
+    {
+      "threshold": 50,
+      "tp": 70,
+      "fp": 20,
+      "tn": 30,
+      "fn": 30,
+      "false_positive_rate_pct": 40.0,
+      "false_negative_rate_pct": 30.0,
+      "detection_rate_pct": 70.0,
+      "precision_pct": 77.78,
+      "f1_score": 0.7368
+    },
+    {
+      "threshold": 55,
+      "tp": 59,
+      "fp": 13,
+      "tn": 37,
+      "fn": 41,
+      "false_positive_rate_pct": 26.0,
+      "false_negative_rate_pct": 41.0,
+      "detection_rate_pct": 59.0,
+      "precision_pct": 81.94,
+      "f1_score": 0.686
+    },
+    {
+      "threshold": 60,
+      "tp": 53,
+      "fp": 0,
+      "tn": 50,
+      "fn": 47,
+      "false_positive_rate_pct": 0.0,
+      "false_negative_rate_pct": 47.0,
+      "detection_rate_pct": 53.0,
+      "precision_pct": 100.0,
+      "f1_score": 0.6928
+    },
+    {
+      "threshold": 65,
+      "tp": 45,
+      "fp": 0,
+      "tn": 50,
+      "fn": 55,
+      "false_positive_rate_pct": 0.0,
+      "false_negative_rate_pct": 55.0,
+      "detection_rate_pct": 45.0,
+      "precision_pct": 100.0,
+      "f1_score": 0.6207
+    },
+    {
+      "threshold": 70,
+      "tp": 32,
+      "fp": 0,
+      "tn": 50,
+      "fn": 68,
+      "false_positive_rate_pct": 0.0,
+      "false_negative_rate_pct": 68.0,
+      "detection_rate_pct": 32.0,
+      "precision_pct": 100.0,
+      "f1_score": 0.4848
+    }
+  ],
+  "best_threshold": {
+    "threshold": 60,
+    "tp": 53,
+    "fp": 0,
+    "tn": 50,
+    "fn": 47,
+    "false_positive_rate_pct": 0.0,
+    "false_negative_rate_pct": 47.0,
+    "detection_rate_pct": 53.0,
+    "precision_pct": 100.0,
+    "f1_score": 0.6928
+  },
+  "current_threshold_50": {
+    "threshold": 50,
+    "tp": 70,
+    "fp": 20,
+    "tn": 30,
+    "fn": 30,
+    "false_positive_rate_pct": 40.0,
+    "false_negative_rate_pct": 30.0,
+    "detection_rate_pct": 70.0,
+    "precision_pct": 77.78,
+    "f1_score": 0.7368
+  },
+  "best_f1": {
+    "threshold": 32,
+    "tp": 97,
+    "fp": 47,
+    "tn": 3,
+    "fn": 3,
+    "false_positive_rate_pct": 94.0,
+    "false_negative_rate_pct": 3.0,
+    "detection_rate_pct": 97.0,
+    "precision_pct": 67.36,
+    "f1_score": 0.7951
+  },
+  "best_balanced": {
+    "threshold": 60,
+    "tp": 53,
+    "fp": 0,
+    "tn": 50,
+    "fn": 47,
+    "false_positive_rate_pct": 0.0,
+    "false_negative_rate_pct": 47.0,
+    "detection_rate_pct": 53.0,
+    "precision_pct": 100.0,
+    "f1_score": 0.6928
+  },
+  "best_zero_fp": {
+    "threshold": 60,
+    "tp": 53,
+    "fp": 0,
+    "tn": 50,
+    "fn": 47,
+    "false_positive_rate_pct": 0.0,
+    "false_negative_rate_pct": 47.0,
+    "detection_rate_pct": 53.0,
+    "precision_pct": 100.0,
+    "f1_score": 0.6928
+  },
+  "auc": 0.6739999999999999
+}

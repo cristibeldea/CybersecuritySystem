@@ -1,15 +1,7 @@
-"""
-Stage 4 — Swirl distortion.
-
-Creates multiple local rotational vortex warps at random points.
-Locally bends lines while keeping the global structure readable.
-The rotation angle decays linearly with distance from the swirl centre,
-so the effect dies smoothly at the boundary of each vortex.
-"""
+"""Etapa 4: distorsiune in forma de vartej rotational local."""
 import numpy as np
 
 from .helpers import _bilinear_remap
-
 
 def swirl_distortion(img: np.ndarray, num_swirls: int = 2,
                      strength_range: tuple = (0.4, 0.6),
@@ -21,18 +13,15 @@ def swirl_distortion(img: np.ndarray, num_swirls: int = 2,
     map_y = y_coords.astype(np.float32).copy()
 
     for _ in range(num_swirls):
-        # Random centre
         scx = rng.uniform(w * 0.2, w * 0.8)
         scy = rng.uniform(h * 0.2, h * 0.8)
         strength = rng.uniform(*strength_range) * rng.choice([-1, 1])
         radius = rng.uniform(*radius_frac) * min(h, w)
 
-        # Distance from swirl centre
         dx = map_x - scx
         dy = map_y - scy
         dist = np.sqrt(dx ** 2 + dy ** 2)
 
-        # Rotation angle decays with distance from centre
         mask = dist < radius
         angle = np.zeros_like(dist)
         angle[mask] = strength * (1.0 - dist[mask] / radius)

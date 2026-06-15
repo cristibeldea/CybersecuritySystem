@@ -1,11 +1,4 @@
-"""
-HMAC-signed pass token issued after a successful CAPTCHA flow.
-
-Format: ``base64url(json_payload).base64url(HMAC-SHA256(payload))``.
-The payload binds the session id (``sid``), policy version (``pv``),
-expiry (``exp``), and an optional User-Agent / Host context so the
-token cannot be replayed from another browser or vhost.
-"""
+"""Token de trecere semnat HMAC emis dupa rezolvarea CAPTCHA."""
 import hmac
 import json
 from typing import Any, Dict, Optional, Tuple
@@ -17,7 +10,6 @@ from .helpers import (
     _safe_int,
     _sign,
 )
-
 
 def make_pass_token(
     secret: str,
@@ -38,7 +30,6 @@ def make_pass_token(
     payload = json.dumps(body, separators=(",", ":"), sort_keys=True).encode("utf-8")
     sig = _sign(secret, payload)
     return f"{_b64url_encode(payload)}.{sig}"
-
 
 def verify_pass_token(
     secret: str,

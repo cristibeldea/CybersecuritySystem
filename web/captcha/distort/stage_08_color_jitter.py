@@ -1,17 +1,5 @@
-"""
-Stage 8 — Photometric color jitter.
-
-Independent random perturbations on brightness, contrast and saturation.
-Each is mild on its own (~6%, ~12%, ~18% maximum respectively), but the
-three combined push the image slightly outside the training-time
-photometric distribution of typical CNN classifiers.
-
-The same technique is used as training-time data augmentation by model
-builders; here it is repurposed defensively with slightly more
-aggressive ranges than typical augmentation settings.
-"""
+"""Etapa 8: jitter fotometric pe luminozitate, contrast si saturatie."""
 import numpy as np
-
 
 def color_jitter(img: np.ndarray,
                  brightness_range: tuple = (-15, 15),

@@ -15,11 +15,7 @@
 
     <script>
     (function() {
-      /* -------------------------------------------------------
-         Behavioral telemetry — mirrors the captcha pipeline.
-         Collects mouse/touch points, clicks, focus/blur events.
-         Sends a window of data every SEND_INTERVAL_MS for scoring.
-      ------------------------------------------------------- */
+
       var SEND_INTERVAL_MS = 5000;
       var MAX_POINTS = 300;
 
@@ -31,7 +27,6 @@
 
       function ts() { return Date.now() - startTime; }
 
-      /* --- Mouse / touch movement --- */
       function onMove(e) {
         hadPointer = true;
         var x, y;
@@ -48,13 +43,11 @@
       document.addEventListener("mousemove", onMove, { passive: true });
       document.addEventListener("touchmove", onMove, { passive: true });
 
-      /* --- Clicks --- */
       function onClick(e) {
         clicks.push({ t: ts(), x: Math.round(e.clientX), y: Math.round(e.clientY) });
       }
       document.addEventListener("click", onClick, { passive: true });
 
-      /* --- Focus / blur --- */
       window.addEventListener("focus", function() {
         focusEvents.push({ type: "focus", t: ts() });
       });
@@ -62,7 +55,6 @@
         focusEvents.push({ type: "blur", t: ts() });
       });
 
-      /* --- Periodic send --- */
       function sendBehavior() {
         if (points.length < 3 && clicks.length < 1) return;
 
@@ -75,7 +67,6 @@
           tile_hovers: {}
         };
 
-        /* Reset buffers after sending */
         points = [];
         clicks = [];
         focusEvents = [];
@@ -92,7 +83,7 @@
             window.location.href = "/captcha";
           }
         })
-        .catch(function() { /* network error — ignore silently */ });
+        .catch(function() {  });
       }
 
       setInterval(sendBehavior, SEND_INTERVAL_MS);

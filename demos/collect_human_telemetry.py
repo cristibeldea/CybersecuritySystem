@@ -1,18 +1,4 @@
-"""
-Colector de telemetrie umana reala.
-
-Deschide pagina /captcha intr-un browser vizibil. Utilizatorul (TU) face
-operatia de hold-to-verify de N ori, miscand cursorul natural si apasand
-butonul ca de obicei. Scriptul intercepteaza fiecare cerere POST catre
-/captcha/verify, salveaza payload-ul (traiectorie, evenimente, timing) si
-raspunde cu un mesaj de tip 'retry' ca pagina sa ramana pe aceeasi etapa.
-
-Intre capturi, telemetria din pagina este resetata automat (puncte, click-uri,
-markeri temporali), astfel incat fiecare mostra capturata sa fie independenta
-de cele anterioare.
-
-Iesire: demos/data/human_telemetry.json
-"""
+"""Colector de telemetrie umana: deschide CAPTCHA in browser si salveaza datele captate pentru calibrare."""
 import asyncio, sys, io, os, json
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
@@ -32,9 +18,7 @@ def step(t): print(f"{W}{BD}[->]{RS} {t}")
 def warn(t): print(f"{Y}{BD}[!]{RS} {t}")
 def err(t):  print(f"{R}{BD}[x]{RS} {t}")
 
-
 captured_payloads = []
-
 
 OVERLAY_JS = """
 () => {
@@ -84,7 +68,6 @@ RESET_TELEMETRY_JS = """
     if (typeof hadPointer     !== 'undefined') hadPointer = false;
 }
 """
-
 
 async def main():
     hdr("COLECTOR TELEMETRIE UMANA REALA")
@@ -144,7 +127,6 @@ async def main():
         info(f"{Y}Browser deschis. Tine apasat butonul de hold-to-verify "
              f"de {TARGET_SAMPLES} ori, miscand cursorul natural.{RS}\n")
 
-        # Poll: reseteaza telemetria intre capturi si actualizeaza overlay-ul
         last_count = 0
         while len(captured_payloads) < TARGET_SAMPLES:
             await asyncio.sleep(0.25)
@@ -153,9 +135,6 @@ async def main():
                 last_count = n
                 try:
                     await page.evaluate(f"window.__updateProgress({n}, {TARGET_SAMPLES})")
-                    # Mic delay ca pagina sa-si reseteze UI-ul, apoi sterg
-                    # array-urile de puncte/click-uri ca fiecare mostra
-                    # urmatoare sa fie complet independenta de cea trecuta.
                     await asyncio.sleep(0.15)
                     await page.evaluate(RESET_TELEMETRY_JS)
                 except Exception:
@@ -164,7 +143,6 @@ async def main():
         print()
         ok(f"Total: {len(captured_payloads)} mostre.")
 
-        # Salvare
         with open(OUT_FILE, "w", encoding="utf-8") as f:
             json.dump(captured_payloads, f, ensure_ascii=False, indent=2)
         ok(f"Salvat: {OUT_FILE}")
@@ -173,7 +151,6 @@ async def main():
         info("Inchid browserul in 4 secunde...")
         await asyncio.sleep(4)
         await browser.close()
-
 
 if __name__ == "__main__":
     try:

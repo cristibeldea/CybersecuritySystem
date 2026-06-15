@@ -1,13 +1,5 @@
-"""
-Stage 2 — Fourier mid+high band erosion.
-
-Wipes out mid AND high frequencies, leaving only coarse structure.
-This destroys the texture information CNNs rely on for fine-grained
-classification, while preserving the low-frequency content humans use
-for shape recognition.
-"""
+"""Etapa 2: eroziunea benzilor de frecvente medii si inalte in domeniul Fourier."""
 import numpy as np
-
 
 def fourier_band_erosion(img: np.ndarray,
                           mid_low: float = 0.12,
@@ -20,7 +12,6 @@ def fourier_band_erosion(img: np.ndarray,
     max_radius = min(cy, cx)
     rng = np.random.default_rng()
 
-    # Randomise band edges
     mid_low = np.clip(mid_low + rng.uniform(-0.015, 0.015), 0.05, 0.20)
     mid_high = np.clip(mid_high + rng.uniform(-0.025, 0.025), 0.40, 0.65)
 
@@ -29,17 +20,14 @@ def fourier_band_erosion(img: np.ndarray,
 
     mask = np.ones((h, w), dtype=np.float32)
 
-    # Mid-band erosion
     r_ml, r_mh = max_radius * mid_low, max_radius * mid_high
     mid_band = (dist >= r_ml) & (dist <= r_mh)
     mask[mid_band] = mid_atten
 
-    # High-frequency erosion
     r_hs = max_radius * high_start
     high_band = dist >= r_hs
     mask[high_band] = high_atten
 
-    # Smooth transitions
     trans = 0.04 * max_radius
     for edge_r, atten_val in [(r_ml, mid_atten), (r_mh, mid_atten), (r_hs, high_atten)]:
         inner = (dist >= edge_r - trans) & (dist < edge_r)

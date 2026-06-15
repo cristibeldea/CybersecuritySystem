@@ -1,0 +1,98 @@
+{
+  "load_levels": [
+    [
+      1000,
+      10
+    ],
+    [
+      5000,
+      50
+    ],
+    [
+      10000,
+      100
+    ],
+    [
+      25000,
+      250
+    ]
+  ],
+  "results": [
+    {
+      "num_events": 1000,
+      "num_ips": 10,
+      "total_time_s": 1.3518,
+      "total_time_ms": 1351.83,
+      "avg_us_per_event": 1351.83,
+      "throughput_events_per_sec": 739.7,
+      "memory_peak_bytes": 141168,
+      "memory_peak_mb": 0.135,
+      "memory_current_bytes": 73448,
+      "structure_sizes": {
+        "ip_history_keys": 10,
+        "ip_history_total_entries": 10,
+        "fp_to_ips_keys": 10,
+        "ip_first_seen_keys": 10,
+        "global_timeline_size": 10,
+        "ip_header_stats_keys": 4
+      }
+    },
+    {
+      "num_events": 5000,
+      "num_ips": 50,
+      "total_time_s": 7.2447,
+      "total_time_ms": 7244.7,
+      "avg_us_per_event": 1448.94,
+      "throughput_events_per_sec": 690.2,
+      "memory_peak_bytes": 150035,
+      "memory_peak_mb": 0.143,
+      "memory_current_bytes": 65556,
+      "structure_sizes": {
+        "ip_history_keys": 50,
+        "ip_history_total_entries": 50,
+        "fp_to_ips_keys": 50,
+        "ip_first_seen_keys": 50,
+        "global_timeline_size": 50,
+        "ip_header_stats_keys": 20
+      }
+    },
+    {
+      "num_events": 10000,
+      "num_ips": 100,
+      "total_time_s": 17.3914,
+      "total_time_ms": 17391.36,
+      "avg_us_per_event": 1739.14,
+      "throughput_events_per_sec": 575.0,
+      "memory_peak_bytes": 212148,
+      "memory_peak_mb": 0.202,
+      "memory_current_bytes": 116940,
+      "structure_sizes": {
+        "ip_history_keys": 100,
+        "ip_history_total_entries": 100,
+        "fp_to_ips_keys": 100,
+        "ip_first_seen_keys": 100,
+        "global_timeline_size": 100,
+        "ip_header_stats_keys": 40
+      }
+    },
+    {
+      "num_events": 25000,
+      "num_ips": 250,
+      "total_time_s": 63.6123,
+      "total_time_ms": 63612.26,
+      "avg_us_per_event": 2544.49,
+      "throughput_events_per_sec": 393.0,
+      "memory_peak_bytes": 385023,
+      "memory_peak_mb": 0.367,
+      "memory_current_bytes": 260777,
+      "structure_sizes": {
+        "ip_history_keys": 250,
+        "ip_history_total_entries": 250,
+        "fp_to_ips_keys": 250,
+        "ip_first_seen_keys": 250,
+        "global_timeline_size": 250,
+        "ip_header_stats_keys": 100
+      }
+    }
+  ]
+}

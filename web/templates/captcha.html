@@ -238,7 +238,6 @@
         border-color: var(--accent);
       }
 
-      /* Auxiliary layout helpers */
       .input-group {
         opacity: 0;
         pointer-events: none;
@@ -368,7 +367,6 @@
           </div>
         </div>
 
-        <!-- Stage 1: grid challenge -->
         <div id="gridStage" class="hidden">
           <div>
             <strong id="gridPrompt">Select all images matching the requested category.</strong>
@@ -413,9 +411,6 @@
       let redirectTo = CFG.redirect_to || "/";
       let banUntil = CFG.ban_until || null;
 
-      // -----------------------------
-      // Interaction capture
-      // -----------------------------
       const MAX_POINTS = 900;
       const SAMPLE_MS = 12;
       const points = [];
@@ -423,7 +418,6 @@
       const keydowns = [];
       const focusEvents = [];
 
-      // Per-tile hover tracking: { tileId: { enter_t, total_ms } }
       const tileHovers = {};
       let currentHoverTile = null;
       let hoverEnterT = 0;
@@ -447,7 +441,6 @@
         addPoint(e.touches[0].clientX, e.touches[0].clientY);
       }, { passive: true });
 
-      // Track click coordinates and target tile (for overshoot detection)
       window.addEventListener("click", (e) => {
         clicks.push({ t: performance.now(), x: e.clientX, y: e.clientY });
       }, { passive: true });
@@ -461,7 +454,6 @@
 
       function onTileEnter(tileId) {
         const now = performance.now();
-        // close previous hover if still open
         if (currentHoverTile !== null && currentHoverTile !== tileId) {
           flushHover(now);
         }
@@ -508,7 +500,6 @@
       }
 
       function makePayload(extra) {
-        // flush any in-progress hover
         flushHover(performance.now());
 
         const endT = performance.now();
@@ -536,15 +527,11 @@
         hadPointer = false;
         lastSample = 0;
         startT = performance.now();
-        // reset hover tracking
         for (const k in tileHovers) delete tileHovers[k];
         currentHoverTile = null;
         hoverEnterT = 0;
       }
 
-      // -----------------------------
-      // UI refs
-      // -----------------------------
       const checkboxStage = document.getElementById("checkboxStage");
       const gridStage = document.getElementById("gridStage");
 
@@ -648,7 +635,6 @@
             }
           });
 
-          // Track hover time per tile
           el.addEventListener("mouseenter", () => onTileEnter(String(tile.id)));
           el.addEventListener("mouseleave", () => onTileLeave(String(tile.id)));
 
@@ -756,7 +742,6 @@
         e.preventDefault();
         holdActive = false;
         if (holdRaf) cancelAnimationFrame(holdRaf);
-        // Released too early — reset
         holdFill.style.width = "0%";
         setStatus("Hold the button until it fills completely.", "bad");
       }
@@ -849,7 +834,6 @@
         }
       }
 
-      // Flag interaction with any hold-btn that isn't the real one
       let honeypotTriggered = false;
       document.querySelectorAll('.hold-btn').forEach(el => {
         if (el === holdBtn) return;
@@ -858,13 +842,11 @@
         });
       });
 
-      // Hold button — mouse + touch
       holdBtn.addEventListener("mousedown", holdDown);
       window.addEventListener("mouseup", holdUp);
       holdBtn.addEventListener("touchstart", holdDown, { passive: false });
       window.addEventListener("touchend", holdUp);
       window.addEventListener("touchcancel", holdUp);
-      // Prevent context menu on long-press (mobile)
       holdBtn.addEventListener("contextmenu", (e) => e.preventDefault());
 
       gridVerifyBtn.addEventListener("click", verifyGrid);

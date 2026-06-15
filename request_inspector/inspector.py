@@ -1,25 +1,4 @@
-"""
-Request inspector main loop.
-
-Subscribes to the Redis Pub/Sub channel published by the Flask web
-service and applies the six detection modules sequentially per event,
-in increasing order of computational cost.  The first module that
-decides to ban the source IP halts the chain for that event.
-
-This file is the consequence of refactoring the original 980-line
-``inspector.py`` into a package: configuration lives in ``config.py``,
-shared state and helpers in ``state.py``, the ban primitive in
-``ban.py``, and the six detection algorithms each in their own file
-under ``modules/``.
-
-Module ordering rationale (also discussed in Chapter 3 of the thesis):
-    M1 — cheapest (Redis ZSET cardinality, microseconds)
-    M2 — interval CV statistics on per-IP history
-    M3 — sequential substring + first-order Markov on URL paths
-    M4 — SHA-256 fingerprint + header coherence rules
-    M5 — funnel-step extraction + cross-session timing analysis
-    M6 — costliest (cross-IP global aggregation + BFS clustering)
-"""
+"""Bucla principala a inspectorului: consuma evenimente de pe canalul Redis Pub/Sub."""
 import json
 import time
 
@@ -62,9 +41,6 @@ from modules import (
     check_volume,
     check_funnel_timing,
 )
-# Re-export the internal helpers of Module 6 so the legacy test suite,
-# which historically reached into ``inspector._check_*`` directly,
-# keeps working unchanged after the package refactor.
 from modules.m6_botnet import (
     _check_cross_ip_timing,
     _check_mass_onboarding,
@@ -89,9 +65,8 @@ from state import (
     r,
 )
 
-
 def handle_event(evt: dict) -> None:
-    """Apply the six detection modules to a single inspected event."""
+    """Aplica cele sase module de detectie pe un singur eveniment."""
     ip = evt.get("ip", "unknown")
     ts = int(evt.get("ts", time.time()))
     path = evt.get("path", "/")
@@ -100,38 +75,29 @@ def handle_event(evt: dict) -> None:
     if not ip or ip == "unknown":
         return
 
-    # If already banned, skip
     if r.exists(f"{BANNED_PREFIX}{ip}"):
         return
 
-    # --- Record in history for modules 2, 3, 5 ---
     ip_history[ip].append(evt)
     _prune_history(ip, _now() - HISTORY_TTL)
 
-    # --- Module 1: Volume threshold (skip captcha-kind requests) ---
     if kind != "captcha":
         if check_volume(ip, ts):
             return
 
-    # --- Module 2: Frequency regularity ---
     if check_frequency_regularity(ip):
         return
 
-    # --- Module 3: Sequential pattern ---
     if check_sequential_pattern(ip):
         return
 
-    # --- Module 4: Fingerprint consistency ---
     if check_fingerprint(ip, evt):
         return
 
-    # --- Module 5: Funnel timing ---
     if check_funnel_timing(ip):
         return
 
-    # --- Module 6: Distributed botnet ---
     check_distributed_botnet(ip, evt)
-
 
 def main() -> None:
     pubsub = r.pubsub(ignore_subscribe_messages=True)
@@ -159,7 +125,6 @@ def main() -> None:
         except json.JSONDecodeError:
             continue
         handle_event(evt)
-
 
 if __name__ == "__main__":
     main()
